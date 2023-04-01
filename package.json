@@ -4,6 +4,7 @@
     "build": "webpack"
   },
   "dependencies": {
+    "@coral-xyz/anchor": "^0.27.0",
     "@solana/spl-token": "^0.3.7",
     "@solana/wallet-adapter-base": "^0.9.22",
     "@solana/wallet-adapter-wallets": "^0.19.16",
