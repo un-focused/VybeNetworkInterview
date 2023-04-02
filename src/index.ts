@@ -1,5 +1,5 @@
 import { Connection, GetVersionedTransactionConfig, PublicKey } from '@solana/web3.js';
-import { BorshCoder, EventData, EventParser, Idl } from '@coral-xyz/anchor';
+import { BorshCoder, BorshInstructionCoder, EventData, EventParser, Idl } from '@coral-xyz/anchor';
 import idlJSON from './idl.json';
 import { IdlEventField } from '@coral-xyz/anchor/dist/cjs/idl';
 import BN from 'bn.js';
@@ -84,14 +84,16 @@ function anchorToTypes(type: TypeEnum, data: EventData<IdlEventField, Record<str
             return value as boolean;
         // big number
         case 'u64': case 'u128': case 'i64': case 'i128':
-            console.log('casted to BN')
-            console.log('IS THIS A BN', BN.isBN(value));
+            // console.log('casted to BN')
+            // console.log('IS THIS A BN', BN.isBN(value));
+            // Note: decimals are not supported in this library.
             const newValue = value as BN;
-            console.log('BEFORE CAST DATA', data);
-            console.log('BEFORE CAST HERE: value', value, type);
-            console.log('AFTER CAST HERE: value', newValue);
+            // console.log('BEFORE CAST DATA', data);
+            // console.log('BEFORE CAST HERE: value', value, type);
+            // console.log('AFTER CAST HERE: value', newValue);
+            // console.log('AFTER CAST STRING HERE: value', newValue.toString(10));
             // return value as BN;
-            return newValue.toString();
+            return newValue.toString(10);
         // number
         case 'u8': case 'u16': case 'f32': case 'f64':
             console.log('casted to number')
@@ -144,7 +146,7 @@ async function main() {
     const connection = new Connection('https://api.mainnet-beta.solana.com', 'finalized');
 
     console.log(`connecting to ${ connection.rpcEndpoint }`);
-    const signatures = await connection.getSignaturesForAddress(pubKey, { limit: 100 });
+    const signatures = await connection.getSignaturesForAddress(pubKey, { limit: 5 });
     // required as per documentation, the default config is deprecated
     const config: GetVersionedTransactionConfig = {
         maxSupportedTransactionVersion: 0
@@ -158,66 +160,85 @@ async function main() {
     );
 
     const idl: Idl = idlJSON as Idl;
-    const parser = new EventParser(pubKey, new BorshCoder(idl));
+    const coder = new BorshCoder(idl);
+    const parser = new EventParser(pubKey, coder);
+    const instructionParser = new BorshInstructionCoder(idl)
 
     for (let i = 0; i < transactions.length; ++i) {
         const transaction = transactions[i];
         const signature = signatures[i];
-        // console.log(transaction)
         if (!transaction) {
             console.log('[INFO], NULL');
             continue;
         }
 
-        // const logs = transaction.meta?.logMessages?.filter(
-        //     (log) => log.includes('Instruction')
-        // );
         const logs = transaction.meta?.logMessages;
+        // console.log(logs);
         if (!logs) {
             console.log('no logs');
             continue;
         }
-        // console.log(logs);
-        // console.log('[INFO]', transaction.meta?.logMessages)
+        // console.log('DATA: ', logs);
         const gen = parser.parseLogs(logs, false);
         for (const next of gen) {
-            // const { name, data } = next as ParsedEvent;
+            // console.log('DATA: ', JSON.stringify(next));
             const { name, data } = next;
-            // console.log('[INFO] LOG', JSON.stringify(next));
-            console.log(`ITEM: ${ name }`);
+            // console.log(`ITEM: ${ name }`);
             const event = eventMap.get(name);
             if (!event) {
                 console.log('[INFO]', 'MISSING FOR NAME: ' + name);
                 continue;
             }
-
-            // console.log('event', event);
-            for (const field of event.fields) {
-                const { name } = field;
-                console.log(`BEFORE CAST: ${ name }: `, data[name]);
-                if (typeof field.type !== 'string') {
-                    console.log('[INFO]: MUST BE A CLASS TYPE');
-                    continue;
-                }
-
-                const { type } = field;
-                const value = anchorToTypes(type, data, name);
-                console.log('[INFO] CASTED: ', field.name, value);
-
-            }
-            // console.log('\t fees accrued:', feesAccrued)
-            // console.log('\t instantaneous funding rate:', instantaneousFundingRate)
-            // console.log('\t short funding:', shortFunding)
-            // console.log('\t long funding:', longFunding)
-            // console.log('\t market index:', marketIndex)
-            // console.log('\t open interest:', openInterest)
-            // console.log('\t mango group:', mangoGroup)
-            // console.log('\t stable price:', stablePrice.toString(10))
-            // console.log('\t price:', price)
-            console.log('\t signature:')
-            console.log('\t\t block time:', signature.blockTime)
-            console.log('\t\t signature:', signature.signature)
+            console.log('event found', name);
+            //
+            // for (const field of event.fields) {
+            //     const { name } = field;
+            //     // console.log(`BEFORE CAST: ${ name }: `, data[name]);
+            //     if (typeof field.type !== 'string') {
+            //         console.log('[INFO]: MUST BE A CLASS TYPE');
+            //         continue;
+            //     }
+            //
+            //     const { type } = field;
+            //     const value = anchorToTypes(type, data, name);
+            //     console.log('[INFO] CASTED: ', field.name, value);
+            // }
+            // console.log('\t signature:')
+            // console.log('\t\t block time:', signature.blockTime)
+            // console.log('\t\t signature:', signature.signature)
         }
+        // Bz9KX2mGFbq3q7WLKW4ATH
+        // 2DvUoCCiuh7kj
+        // 3Bxs43eF7ZuXE46B
+        const message = transaction.transaction.message;
+        for (const log of logs) {
+            if (log.includes('Instruction')) {
+                const startIndex = log.indexOf('Instruction');
+                console.log('MAYBE THIS', message.instructions)
+                if (message.instructions && message.instructions.length > 0) {
+                    console.log('INSTRUCTION', message.instructions[0].data)
+                    console.log(
+                        'WHAT IS THIS 1',
+                        coder.instruction.decode(message.instructions[0].data, 'hex')
+                    );
+                }
+                console.log('RAW FORMATTED INSTRUCTION:', log.substring(startIndex));
+                const rawInstruction = log.substring(startIndex);
+                console.log('WHAT IS THIS', coder.instruction.decode(rawInstruction));
+            }
+        }
+        // const parsed = instructionParser.decode(message.serialize());
+        // if (message.instructions && message.instructions.length > 0) {
+        //     const parsed = instructionParser.decode(message.instructions[0].data, 'base58');
+        //     // const parsed = coder.instruction.decode(ogs.join(' '), 'base58');
+        //     // console.log('INSTRUCTIONS', message.instructions[0].data);
+        //     console.log('[INSTRUCTIONS]', parsed);
+        //     console.log(logs)
+        //     // if (parsed != null) {
+        //     // }
+        // }
+        // console.log('ACCOUNT KEYS', message.accountKeys);
+        // console.log('INSTRUCTIONS', message.instructions);
     }
 
     // connection.onLogs(
