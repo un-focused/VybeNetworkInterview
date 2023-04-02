@@ -1,8 +1,13 @@
-import { Connection, GetVersionedTransactionConfig, PublicKey } from '@solana/web3.js';
+import { Connection, GetVersionedTransactionConfig, PublicKey, VersionedTransactionResponse } from '@solana/web3.js';
 import { BorshCoder, BorshInstructionCoder, EventData, EventParser, Idl } from '@coral-xyz/anchor';
 import idlJSON from './idl.json';
 import { IdlEventField } from '@coral-xyz/anchor/dist/cjs/idl';
 import BN from 'bn.js';
+import bs58 from 'bs58';
+import { snakeCase } from "snake-case";
+import { sha256 } from "js-sha256";
+
+import { main as sandboxMain } from './sandbox';
 
 /**
  * REFERENCES:
@@ -88,6 +93,14 @@ function anchorToTypes(type: TypeEnum, data: EventData<IdlEventField, Record<str
     }
 }
 
+// Not technically sighash, since we don't include the arguments, as Rust
+// doesn't allow function overloading.
+function sighashF(nameSpace: string, ixName: string): Buffer {
+    let name = snakeCase(ixName);
+    let preimage = `${nameSpace}:${name}`;
+    return Buffer.from(sha256.digest(preimage)).slice(0, 8);
+}
+
 // MangoAccountData
 // PerpBalanceLog
 // TokenBalanceLog
@@ -136,7 +149,7 @@ async function main() {
         maxSupportedTransactionVersion: 0
     };
 
-    const transactions = await connection.getTransactions(
+    const transactions: (VersionedTransactionResponse | null)[] = await connection.getTransactions(
         signatures.map(
             item => item.signature
         ),
@@ -184,24 +197,78 @@ async function main() {
             //     console.log('[INFO] CASTED: ', field.name, value);
             // }
         }
-        // Bz9KX2mGFbq3q7WLKW4ATH
-        // 2DvUoCCiuh7kj
-        // 3Bxs43eF7ZuXE46B
-        const message = transaction.transaction.message;
+        // PerpPlaceOrder
+        // want: H4xgvHhm7NU
+        // have: Ft2gm2vJxhU
+        // want: Ft2gm2vJxhU
+        // have: Bz9KX2mGFbq4fctQ7wgBr7
+        const versionedMessage = transaction.transaction.message;
         for (const log of logs) {
             if (log.includes('Instruction')) {
+                console.log(versionedMessage.compiledInstructions);
                 const startIndex = log.indexOf('Instruction');
-                console.log('MAYBE THIS', message.instructions)
+                // console.log('MAYBE THIS', message.instructions)
                 if (message.instructions && message.instructions.length > 0) {
-                    console.log('INSTRUCTION', message.instructions[0].data)
-                    console.log(
-                        'WHAT IS THIS 1',
-                        coder.instruction.decode(message.instructions[0].data, 'hex')
+                    const firstInstruction = message.instructions[0];
+                    // may not contain any data, no args in IDL, only accounts
+                    const { data } = firstInstruction;
+                    console.log('data', data);
+                    const ix = bs58.decode(data);
+
+                    console.log('ix', ix);
+                    console.log('before sighash', ix.slice(0, 8), log);
+                    const sighash = bs58.encode(ix.slice(0, 8));
+                    console.log('sighash', sighash)
+                    const dataPart = ix.slice(8);
+                    // hack to access the private variable3
+                    const layouts = (coder.instruction as any).sighashLayouts;
+                    console.log('layouts', layouts);
+                    const decoder = layouts.get(sighash);
+                    console.log('DECODER', decoder);
+                    console.log(log)
+                    const searchStr = "Instruction: ";
+                    const rawInstructionName = log.substring(log.indexOf(searchStr) + searchStr.length);
+                    const parts = rawInstructionName.split('');
+                    parts[0] = parts[0].toLowerCase();
+
+                    const formattedInstructionName = parts.join('');
+                    const foundInstruction = idl.instructions.find(
+                        (instruction) => instruction.name === formattedInstructionName
                     );
+
+                    console.log('formatted name', formattedInstructionName);
+                    console.log('formatted name', JSON.stringify({name: formattedInstructionName}));
+                    console.log('found instruction', foundInstruction);
+
+                    if (!foundInstruction) {
+                        console.log('NOT FOUND!!');
+                        continue;
+                    }
+                    console.log('INSTRUCTION', foundInstruction);
+
+                    const sh = sighashF('global', foundInstruction.name);
+                    console.log('[INFO] SH', bs58.encode(sh));
+                    // sighashLayouts.set(bs58.encode(sh), {
+                    //     layout: this.ixLayout.get(ix.name),
+                    //     name: ix.name,
+                    // });
+                    // if (!decoder) {
+                    //     return null;
+                    // }
+                    // return {
+                    //     data: decoder.layout.decode(data),
+                    //     name: decoder.name,
+                    // };
+                    // console.log('DATA: ', data)
+                    // console.log('DECODED DATA: ', result)
+                    // console.log(
+                    //     'WHAT IS THIS 1',
+                    //     coder.instruction.decode(message.instructions[0].data, 'hex')
+                    // );
                 }
-                console.log('RAW FORMATTED INSTRUCTION:', log.substring(startIndex));
-                const rawInstruction = log.substring(startIndex);
-                console.log('WHAT IS THIS', coder.instruction.decode(rawInstruction));
+                // console.log('RAW FORMATTED INSTRUCTION:', log.substring(startIndex));
+                // const rawInstruction = log.substring(startIndex);
+                // console.log('WHAT IS THIS', coder.instruction.decode(rawInstruction));
             }
         }
         // const parsed = instructionParser.decode(message.serialize());
@@ -234,3 +301,4 @@ async function main() {
 }
 
 void main();
+// void sandboxMain();
