@@ -2,7 +2,8 @@ import {
     Connection,
     GetVersionedTransactionConfig,
     PublicKey,
-    VersionedTransactionResponse
+    VersionedTransactionResponse,
+    LAMPORTS_PER_SOL
 } from '@solana/web3.js';
 
 import { SolanaParser } from '@debridge-finance/solana-transaction-parser';
@@ -16,6 +17,9 @@ import {
 import idlJSON from './idl.json';
 import { IdlEventField } from '@coral-xyz/anchor/dist/cjs/idl';
 import BN from 'bn.js';
+import { I80F48 } from './I80F48';
+
+// import { bigInt } from '@solana/buffer-layout-utils';
 
 /**
  * REFERENCES:
@@ -23,11 +27,19 @@ import BN from 'bn.js';
  *  - https://app.mango.markets/stats
  */
 
+// lamport
+// const LAMPORT_VAL = 0.000000001;
+
+// TODO (MAIN PROBLEMS):
+// TODO: marketIndex <-- what to do with this?
+// TODO: convert lamport to SOL
+
 export interface ParsedEvent {
     data: Data;
     name: string;
 }
 
+// 0.000000001 = 1, * 1000000000
 export interface Data {
     mangoGroup: string;
     marketIndex: number;
@@ -89,13 +101,23 @@ function anchorToTypes(type: TypeEnum, data: EventData<IdlEventField, Record<str
             return value as boolean;
         // big number
         case 'u64':
+            // emit!(DepositLog {
+            // mango_group: self.group.key(),
+            //     mango_account: self.account.key(),
+            //     signer: self.token_authority.key(),
+            //     token_index,
+            //     quantity: amount_i80f48.to_num::<u64>(),
+            //     price: oracle_price.to_bits(),
+            // });
+            return I80F48.fromU64(value as BN).toString();
         case 'u128':
         case 'i64': {
             const newValue = value as BN;
-            console.log('new value', newValue.toString(10));
+            // console.log('new value', newValue.toString(10));
             const n = BigInt(newValue.toString(10));
-            console.log('n', n);
-            console.log(newValue.toString(10));
+            // console.log('n', n);
+            // console.log(newValue.toString(10));
+            const str = I80F48.fromString(newValue.toString(10)).toString();
             // assuming USD
             const formatter = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
 
@@ -106,18 +128,29 @@ function anchorToTypes(type: TypeEnum, data: EventData<IdlEventField, Record<str
             // console.log('IS THIS A BN', BN.isBN(value));
             // Note: decimals are not supported in this library.
             const newValue = value as BN;
-            let str = newValue.toString(10, 128);
-            // https://www.anchor-lang.com/docs/javascript-anchor-types
-            // I80F48
-            const parts = str.split('');
 
-            parts.splice(80, 0, '.');
+            // console.log('i128', newValue.toString(10));
+            // const solValue = newValue.div(new BN(LAMPORTS_PER_SOL));
+            // console.log('i128 SOL', solValue.toString(10));
 
-            str = parts.join('');
-            let startIndex = 0;
-            for (;str[startIndex] === '-' || str[startIndex] === '0' && startIndex < 79; ++startIndex) {}
+            // return solValue.toString(10);
+            // const n = BigInt(newValue.toString(10));
+            //
+            // console.log(n);
 
-            return str.substring(startIndex);
+            // let str = newValue.toString(10, 128);
+            // // https://www.anchor-lang.com/docs/javascript-anchor-types
+            // // I80F48
+            // const parts = str.split('');
+            //
+            // parts.splice(80, 0, '.');
+            //
+            // str = parts.join('');
+            // let startIndex = 0;
+            // for (;str[startIndex] === '-' || str[startIndex] === '0' && startIndex < 79; ++startIndex) {}
+            //
+            // return str.substring(startIndex);
+            return I80F48.fromString(newValue.toString(10)).toString();
 
         // number
         case 'u8':
@@ -173,7 +206,13 @@ async function main() {
     const connection = new Connection('https://api.mainnet-beta.solana.com');
 
     console.log(`connecting to ${ connection.rpcEndpoint }`);
-    const signatures = await connection.getSignaturesForAddress(pubKey, { limit: 5 });
+    // const signatures = await connection.getSignaturesForAddress(pubKey, { limit: 5 });
+    const signatures = [
+        {
+            signature: '4YvAKJ1tzsMTVKLqzLfqJSEZ8S5fC6nmRCE6532ZgSLiR7vgs27eN1v8zGTzedXHR2EtrUSvei4abRN5U3MxJSuZ'
+        }
+    ];
+
     // required as per documentation, the default config is deprecated
     const config: GetVersionedTransactionConfig = {
         maxSupportedTransactionVersion: 0
@@ -238,19 +277,50 @@ async function main() {
             }
             console.log('event found', name);
             console.log('TX SIGS', transaction.transaction.signatures);
+            // let amount_usd = (amount_i80f48 * oracle_price).to_num::<i64>();
+            if (name === 'DepositLog') {
+                const mangoGroup = data['mangoGroup'] as PublicKey;
+                const mangoAccount = data['mangoAccount'] as PublicKey;
+                const signer = data['signer'] as PublicKey;
+                const tokenIndex = data['tokenIndex'] as number;
+                const quantity = data['quantity'] as BN;
+                const price = data['price'] as BN;
 
-            for (const field of event.fields) {
-                const { name } = field;
-                // console.log(`BEFORE CAST: ${ name }: `, data[name]);
-                if (typeof field.type !== 'string') {
-                    console.log('[INFO]: MUST BE A CLASS TYPE');
-                    continue;
-                }
+                console.log(`MANGO GROUP: ${ mangoGroup.toBase58() }`);
+                console.log(`MANGO ACCOUNT: ${ mangoAccount.toBase58() }`);
+                console.log(`SIGNER ACCOUNT: ${ signer.toBase58() }`);
+                console.log(`TOKEN INDEX: ${ tokenIndex }`);
+                console.log(`QUANTITY: ${ quantity.toString(10) }`);
+                // console.log(`PRICE: ${ price.toString(2) }`);
+                console.log(`PRICE: ${ new I80F48(price).toTwos().toString(2) }`);
+                // console.log(`QUANTITY: ${ quantity.toJSON() }`);
+                // console.log(`PRICE: ${ price.toJSON() }`);
 
-                const { type } = field;
-                const value = anchorToTypes(type, data, name);
-                console.log('[INFO] CASTED: ', field.name, value);
+                // console.log('QUANTITY: ', quantity.toString(10, 64));
+                // PRICE = 1000000.0
+                // const x = new I80F48(quantity);
+                // const y = new I80F48(price);
+                // console.log('PRICE: ', price.toString(2));
+                // console.log('PRICE: ', y.toTwos().toString(2));
+                // console.log('PLAYGROUND: ', quantity.xor(y.toTwos()).toString(10));
+                // console.log('PLAYGROUND: ', quantity.div(price).toString(10));
+                // console.log('PLAYGROUND: ', price.toTwos(128));
+                // console.log('PLAYGROUND: ', quantity.subn(LAMPORTS_PER_SOL));
+                // console.log('TOTAL PRICE: ', price.mul(quantity).toString(10));
             }
+
+            // for (const field of event.fields) {
+            //     const { name } = field;
+            //     // console.log(`BEFORE CAST: ${ name }: `, data[name]);
+            //     if (typeof field.type !== 'string') {
+            //         console.log('[INFO]: MUST BE A CLASS TYPE');
+            //         continue;
+            //     }
+            //
+            //     const { type } = field;
+            //     const value = anchorToTypes(type, data, name);
+            //     console.log('[INFO] CASTED: ', field.name, value);
+            // }
         }
         // PerpPlaceOrder
         // want: H4xgvHhm7NU
@@ -278,12 +348,12 @@ async function main() {
                         (instruction) => instruction.name === formattedInstructionName
                     );
 
-                    // console.log('formatted name', formattedInstructionName);
-                    // console.log('formatted name', JSON.stringify({name: formattedInstructionName}));
-                    // console.log('found instruction', foundInstruction);
-                    // if (!foundInstruction || foundInstruction.name !== 'tokenWithdraw' && foundInstruction.name !== 'tokenDeposit') {
-                    //     continue;
-                    // }
+                    console.log('formatted name', formattedInstructionName);
+                    console.log('formatted name', JSON.stringify({name: formattedInstructionName}));
+                    console.log('found instruction', foundInstruction);
+                    if (!foundInstruction || foundInstruction.name !== 'tokenWithdraw' && foundInstruction.name !== 'tokenDeposit') {
+                        continue;
+                    }
                     console.log('parsedInstruction:');
                     console.log('\tname: ', parsedInstruction.name);
                     console.log('\targs: ', parsedInstruction.args);
