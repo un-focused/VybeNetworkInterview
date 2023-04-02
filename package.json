@@ -8,7 +8,8 @@
     "@solana/spl-token": "^0.3.7",
     "@solana/wallet-adapter-base": "^0.9.22",
     "@solana/wallet-adapter-wallets": "^0.19.16",
-    "@solana/web3.js": "^1.74.0"
+    "@solana/web3.js": "^1.74.0",
+    "bn.js": "^5.2.1"
   },
   "devDependencies": {
     "esbuild": "^0.17.14",

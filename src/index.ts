@@ -24,7 +24,60 @@ export interface Data {
     instantaneousFundingRate: string;
 }
 
+// type IDLEvent = {
+//     name: string;
+//     fields: {
+//         name: string;
+//         type: {
+//             defined: string;
+//         } | {
+//             vec: {
+//                 defined: string;
+//             }
+//         } | string;
+//         index: boolean;
+//     }[];
+// }
+
+export interface IDLEvent {
+    name:   string;
+    fields: Field[];
+}
+
+export interface Field {
+    name:  string;
+    type:  TypeClass | TypeEnum;
+    index: boolean;
+}
+
+export interface TypeClass {
+    defined?: string;
+    vec?:     Vec;
+}
+
+export interface Vec {
+    defined: string;
+}
+
+export enum TypeEnum {
+    Bool = "bool",
+    F32 = "f32",
+    F64 = "f64",
+    I128 = "i128",
+    I64 = "i64",
+    PublicKey = "publicKey",
+    U128 = "u128",
+    U16 = "u16",
+    U64 = "u64",
+    U8 = "u8",
+}
+
 async function main() {
+    const events = idlJSON.events as IDLEvent[];
+    const eventMap = new Map<string, IDLEvent>();
+    for (const event of events) {
+        eventMap.set(event.name, event)
+    }
     const address = '4MangoMjqJ2firMokCjjGgoK8d4MXcrgL7XJaL3w6fVg';
     const pubKey = new PublicKey(address);
     // https://solana-labs.github.io/solana-web3.js/classes/Connection.html#constructor
@@ -33,7 +86,7 @@ async function main() {
     const connection = new Connection('https://api.mainnet-beta.solana.com', 'finalized');
 
     console.log(`connecting to ${ connection.rpcEndpoint }`);
-    const signatures = await connection.getSignaturesForAddress(pubKey, { limit: 10 });
+    const signatures = await connection.getSignaturesForAddress(pubKey, { limit: 100 });
     // required as per documentation, the default config is deprecated
     const config: GetVersionedTransactionConfig = {
         maxSupportedTransactionVersion: 0
@@ -49,7 +102,9 @@ async function main() {
     const idl: Idl = idlJSON as Idl;
     const parser = new EventParser(pubKey, new BorshCoder(idl));
 
-    for (const transaction of transactions) {
+    for (let i = 0; i < transactions.length; ++i) {
+        const transaction = transactions[i];
+        const signature = signatures[i];
         // console.log(transaction)
         if (!transaction) {
             console.log('[INFO], NULL');
@@ -64,15 +119,55 @@ async function main() {
             console.log('no logs');
             continue;
         }
-        console.log(logs);
+        // console.log(logs);
         // console.log('[INFO]', transaction.meta?.logMessages)
         const gen = parser.parseLogs(logs, false);
         for (const next of gen) {
-            const { name, data } = next as ParsedEvent;
+            // const { name, data } = next as ParsedEvent;
+            const { name, data } = next;
+            const {
+                feesAccrued,
+                instantaneousFundingRate,
+                shortFunding,
+                longFunding,
+                marketIndex,
+                openInterest,
+                mangoGroup,
+                stablePrice,
+                price
+            } = data;
             // console.log('[INFO] LOG', JSON.stringify(next));
-            console.log(`ITEM: ${ name }: ${ data.feesAccrued }, ${ data.instantaneousFundingRate }, ${ data.longFunding }, ${ data.shortFunding }, ${ data.mangoGroup }, ${ data.openInterest }, ${ data.marketIndex }, ${ data.price }, ${ data.stablePrice }`);
-
+            console.log(`ITEM: ${ name }`);
+            const event = eventMap.get(name);
+            if (!event) {
+                console.log('[INFO]', 'MISSING FOR NAME: ' + name);
+                continue;
             }
+
+            // console.log('event', event);
+            for (const field of event.fields) {
+                const { name } = field;
+                console.log(`${ name }: `, data[name]);
+                if (typeof field.type !== 'string') {
+                    console.log('[INFO]: MUST BE A CLASS TYPE');
+                    continue;
+                }
+
+                console.log('[INFO]: type: ', field.type);
+            }
+            // console.log('\t fees accrued:', feesAccrued)
+            // console.log('\t instantaneous funding rate:', instantaneousFundingRate)
+            // console.log('\t short funding:', shortFunding)
+            // console.log('\t long funding:', longFunding)
+            // console.log('\t market index:', marketIndex)
+            // console.log('\t open interest:', openInterest)
+            // console.log('\t mango group:', mangoGroup)
+            // console.log('\t stable price:', stablePrice.toString(10))
+            // console.log('\t price:', price)
+            console.log('\t signature:')
+            console.log('\t\t block time:', signature.blockTime)
+            console.log('\t\t signature:', signature.signature)
+        }
     }
 
     // connection.onLogs(
