@@ -16,12 +16,11 @@ import {
 import idlJSON from './idl.json';
 import { IdlEventField } from '@coral-xyz/anchor/dist/cjs/idl';
 import BN from 'bn.js';
-import { snakeCase } from 'snake-case';
-import { sha256 } from 'js-sha256';
 
 /**
  * REFERENCES:
  *  - https://www.quicknode.com/guides/solana-development/transactions/how-to-get-transaction-logs-on-solana/
+ *  - https://app.mango.markets/stats
  */
 
 export interface ParsedEvent {
@@ -94,8 +93,13 @@ function anchorToTypes(type: TypeEnum, data: EventData<IdlEventField, Record<str
         case 'i64': {
             const newValue = value as BN;
             console.log('new value', newValue.toString(10));
-            const formatter = new Intl.NumberFormat('en-CA', { maximumSignificantDigits: 3 }).format()
-            return newValue.toString(10);
+            const n = BigInt(newValue.toString(10));
+            console.log('n', n);
+            console.log(newValue.toString(10));
+            // assuming USD
+            const formatter = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
+
+            return formatter.format(n);
         }
         case 'i128':
             // console.log('casted to BN')
@@ -126,50 +130,6 @@ function anchorToTypes(type: TypeEnum, data: EventData<IdlEventField, Record<str
             return value;
     }
 }
-
-// REFERENCE: https://stackoverflow.com/questions/37228285/uint8array-to-arraybuffer
-function typedArrayToBuffer(array: Uint8Array): ArrayBuffer {
-    return array.buffer.slice(array.byteOffset, array.byteLength + array.byteOffset);
-}
-
-// Not technically sighash, since we don't include the arguments, as Rust
-// doesn't allow function overloading.
-function sighashF(nameSpace: string, ixName: string): Buffer {
-    let name = snakeCase(ixName);
-    let preimage = `${ nameSpace }:${ name }`;
-    return Buffer.from(sha256.digest(preimage)).slice(0, 8);
-}
-
-// [IX] <Buffer 58 f5 e8 8e 6d fa f5 ff 17 e6 dc 40 87 01 00 00>
-// PerpUpdateFunding
-// [IX] <Buffer 03 01 00 00 00 00 00 00 00>
-// PerpUpdateFunding
-// Program log: Instruction: PerpCancelAllOrders
-// [IX] <Buffer 02 c0 27 09 00>
-// function decode(
-//     ix: Buffer | string,
-//     encoding: 'hex' | 'base58' = 'hex',
-//     coder: BorshCoder
-// ): Instruction | null {
-//     // Ft2gm2vJxhU
-//     if (typeof ix === 'string') {
-//         ix = encoding === 'hex' ? Buffer.from(ix, 'hex') : bs58.decode(ix);
-//     }
-//     console.log('[IX]', ix);
-//     let sighash = bs58.encode(ix.slice(0, 8));
-//     let data = ix.slice(8);
-//     const layouts = (coder.instruction as any).sighashLayouts;
-//     console.log('sighhash', sighash);
-//     const decoder = layouts.get(sighash);
-//     if (!decoder) {
-//         return null;
-//     }
-//
-//     return {
-//         data: decoder.layout.decode(data),
-//         name: decoder.name
-//     };
-// }
 
 // MangoAccountData
 // PerpBalanceLog
@@ -210,7 +170,7 @@ async function main() {
     // https://solana-labs.github.io/solana-web3.js/classes/Connection.html#constructor
     // Write some code to establish a connection to Solana mainnet via an RPC endpoint, you can use this for
     // free: https://docs.solana.com/cluster /rpc-endpoints#mainnet-beta
-    const connection = new Connection('https://api.mainnet-beta.solana.com', 'finalized');
+    const connection = new Connection('https://api.mainnet-beta.solana.com');
 
     console.log(`connecting to ${ connection.rpcEndpoint }`);
     const signatures = await connection.getSignaturesForAddress(pubKey, { limit: 5 });
@@ -267,6 +227,7 @@ async function main() {
         // Apr 2, 2023 at 9:02:54 UTC
         console.log(`BLOCK TIME: ${ dateString }`);
         console.log(`SIGNATURE: ${ signature }`);
+        console.log('LOADED: ', transaction.meta?.loadedAddresses);
         for (const next of gen) {
             const { name, data } = next;
             console.log('DATA', data);
@@ -320,9 +281,17 @@ async function main() {
                     // console.log('formatted name', formattedInstructionName);
                     // console.log('formatted name', JSON.stringify({name: formattedInstructionName}));
                     // console.log('found instruction', foundInstruction);
+                    // if (!foundInstruction || foundInstruction.name !== 'tokenWithdraw' && foundInstruction.name !== 'tokenDeposit') {
+                    //     continue;
+                    // }
                     console.log('parsedInstruction:');
                     console.log('\tname: ', parsedInstruction.name);
-                    // console.log('\targs: ', parsedInstruction.args);
+                    console.log('\targs: ', parsedInstruction.args);
+                    for (const [key, value] of Object.entries(parsedInstruction.args as any)) {
+                        if (BN.isBN(value)) {
+                            console.log('key', key, 'value', (value as BN).toString(10));
+                        }
+                    }
                 }
             }
         }
