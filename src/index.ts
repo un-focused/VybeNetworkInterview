@@ -93,6 +93,8 @@ function anchorToTypes(type: TypeEnum, data: EventData<IdlEventField, Record<str
         case 'u128':
         case 'i64': {
             const newValue = value as BN;
+            console.log('new value', newValue.toString(10));
+            const formatter = new Intl.NumberFormat('en-CA', { maximumSignificantDigits: 3 }).format()
             return newValue.toString(10);
         }
         case 'i128':
@@ -109,13 +111,10 @@ function anchorToTypes(type: TypeEnum, data: EventData<IdlEventField, Record<str
 
             str = parts.join('');
             let startIndex = 0;
-            // 000000.123123
             for (;str[startIndex] === '-' || str[startIndex] === '0' && startIndex < 79; ++startIndex) {}
-            console.log('BEFORE: ', str)
-            console.log('AFTER: ', str.substring(startIndex))
+
             return str.substring(startIndex);
 
-            // str = parts.join('').replace(/^0+/, '');
         // number
         case 'u8':
         case 'u16':
