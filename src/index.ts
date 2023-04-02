@@ -63,17 +63,6 @@ export interface Vec {
 
 // u32, i8, & i16 are omitted as it is not in the events type
 export type TypeEnum = 'bool' | 'f32' | 'f64' | 'i128' | 'i64' | 'publicKey' | 'u128' | 'u16' | 'u64' | 'u8';
-    // Bool = "bool",
-    // F32 = "f32",
-    // F64 = "f64",
-    // I128 = "i128",
-    // I64 = "i64",
-    // PublicKey = "publicKey",
-    // U128 = "u128",
-    // U16 = "u16",
-    // U64 = "u64",
-    // U8 = "u8",
-// }
 
 function anchorToTypes(type: TypeEnum, data: EventData<IdlEventField, Record<string, never>>, name: string) {
     const value = data[name];
@@ -88,11 +77,6 @@ function anchorToTypes(type: TypeEnum, data: EventData<IdlEventField, Record<str
             // console.log('IS THIS A BN', BN.isBN(value));
             // Note: decimals are not supported in this library.
             const newValue = value as BN;
-            // console.log('BEFORE CAST DATA', data);
-            // console.log('BEFORE CAST HERE: value', value, type);
-            // console.log('AFTER CAST HERE: value', newValue);
-            // console.log('AFTER CAST STRING HERE: value', newValue.toString(10));
-            // return value as BN;
             return newValue.toString(10);
         // number
         case 'u8': case 'u16': case 'f32': case 'f64':
@@ -166,24 +150,20 @@ async function main() {
 
     for (let i = 0; i < transactions.length; ++i) {
         const transaction = transactions[i];
-        const signature = signatures[i];
+        const { blockTime, signature } = signatures[i];
         if (!transaction) {
             console.log('[INFO], NULL');
             continue;
         }
 
         const logs = transaction.meta?.logMessages;
-        // console.log(logs);
         if (!logs) {
             console.log('no logs');
             continue;
         }
-        // console.log('DATA: ', logs);
         const gen = parser.parseLogs(logs, false);
         for (const next of gen) {
-            // console.log('DATA: ', JSON.stringify(next));
             const { name, data } = next;
-            // console.log(`ITEM: ${ name }`);
             const event = eventMap.get(name);
             if (!event) {
                 console.log('[INFO]', 'MISSING FOR NAME: ' + name);
@@ -203,9 +183,6 @@ async function main() {
             //     const value = anchorToTypes(type, data, name);
             //     console.log('[INFO] CASTED: ', field.name, value);
             // }
-            // console.log('\t signature:')
-            // console.log('\t\t block time:', signature.blockTime)
-            // console.log('\t\t signature:', signature.signature)
         }
         // Bz9KX2mGFbq3q7WLKW4ATH
         // 2DvUoCCiuh7kj
