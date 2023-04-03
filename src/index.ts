@@ -139,7 +139,7 @@ function findTypeDefInIDL(idl: Idl, name: string): IdlTypeDef | undefined {
     )
 }
 
-function convertIdlTypeDefTyToEventProperty(name: string, idlTypeDefTy: IdlTypeDefTy, value: unknown): EventProperty[] {
+function convertIdlTypeDefTyToEventProperty(idlTypeDefTy: IdlTypeDefTy, value: unknown): EventProperty[] {
     // enum typedef
     /**
      * FORMAT: { variantName: {} }
@@ -157,8 +157,8 @@ function convertIdlTypeDefTyToEventProperty(name: string, idlTypeDefTy: IdlTypeD
                 if (variant.name.toLowerCase() === key.toLowerCase()) {
                     properties.push(
                         {
-                            name,
-                            type: 'enum',
+                            name: key,
+                            type: 'string',
                             value: variant.name
                         }
                     )
@@ -189,7 +189,11 @@ function convertAnchorNonPrimitiveToEventProperty(name: string, type: IdlNonPrim
         // console.log('FOUND TYPE', JSON.stringify(idlTypeDefTy));
         console.log('FOUND VALUE', value);
         // TODO: consider enum as array
-        return convertIdlTypeDefTyToEventProperty(name, idlTypeDefTy, value)
+         return {
+             name,
+             type: 'enum',
+             value: convertIdlTypeDefTyToEventProperty(idlTypeDefTy, value)
+         }
     } else if ('option' in type) {
         const { option } = type;
     } else if ('coption' in type) {
