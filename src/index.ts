@@ -110,6 +110,11 @@ async function runner(connection: Connection, publicKey: PublicKey, idl: Idl, co
             vnEvents.push(vnEvent);
         }
 
+        // if no events are found, skip it
+        if (!vnEvents || vnEvents.length === 0) {
+            continue;
+        }
+
         // add parsed transaction to array
         vnTransactions.push(
             {
@@ -121,9 +126,7 @@ async function runner(connection: Connection, publicKey: PublicKey, idl: Idl, co
         );
 
         try {
-            const result = await collection.insertMany(vnTransactions);
-
-            console.log('RESULT: ' + result);
+            await collection.insertMany(vnTransactions);
         } catch (error: any) {
             // REFERENCE: https://stackoverflow.com/questions/30593882/how-to-catch-the-error-when-inserting-a-mongodb-document-which-violates-an-uniqu
             if (error.name === 'MongoBulkWriteError' && error.code === 11000) {
@@ -246,7 +249,7 @@ async function main() {
 
     const vybeDatabase = mongoClient.db('vybe');
     const transactionsCollection = vybeDatabase.collection('transactions');
-    const result = await transactionsCollection.createIndex(
+    await transactionsCollection.createIndex(
         {
             'signature': 1
         },
