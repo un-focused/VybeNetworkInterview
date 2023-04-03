@@ -1,4 +1,5 @@
 import {
+    ConfirmedSignatureInfo,
     Connection, PublicKey, TransactionConfirmationStatus
 } from '@solana/web3.js';
 
@@ -7,9 +8,6 @@ import {
 import {
     Idl
 } from '@coral-xyz/anchor';
-import {
-    IdlEvent
-} from '@coral-xyz/anchor/dist/cjs/idl';
 import {
     MAIN_NET_SOLANA_RPC_ENDPOINT, MAIN_NET_SOLANA_RPC_POLL_MS,
     MAIN_NET_SOLANA_RPC_RATE_LIMIT,
@@ -56,9 +54,20 @@ async function runner(connection: Connection, publicKey: PublicKey, idl: Idl, si
     const vnTransactions: Transaction[] = [];
 
     // filter signatures as to not get the same data twice
-    const newSignatures = signatures.filter(
-        ({ signature }) => !signatureMap.get(signature)
-    );
+    // const newSignatures = signatures.filter(
+    //     ({ signature }) => !signatureMap.get(signature)
+    // );
+
+    const newSignatures: ConfirmedSignatureInfo[] = [
+        {
+            confirmationStatus: 'finalized',
+            blockTime: new Date().getTime() / 1000,
+            slot: 1,
+            err: null,
+            memo: null,
+            signature: '4WEPK9aRByW4NvDJDpL8Uk716URjdPgD2mT8oXDGswmnZkzPx1UU2McyVeJzdrq7ofR8Nth7rY7hzyTCrJiBiH73'
+        }
+    ]
 
     // nothing to query!!, early return
     if (newSignatures.length === 0) {
@@ -98,6 +107,7 @@ async function runner(connection: Connection, publicKey: PublicKey, idl: Idl, si
             const { name, data } = next;
             // get event from IDL
             const event = eventMap.get(name);
+            console.log(data);
             if (!event) {
                 console.warn('[INFO]', 'MISSING FOR NAME: ' + name);
                 continue;
@@ -154,6 +164,24 @@ function logEvent(item: VNEvent | EventProperty[], indent = 2) {
         } else if (type == 'enum') {
             const enumProperties = value as EventProperty[];
             console.log(`${ tabs }\t ${ name }: ${ enumProperties.map((p) => p.value).join(' ') } `);
+            continue;
+        } else if (type == 'array') {
+            // console.log('ARRAY IS NEEDED', array);
+            const arrayProperties = value as EventProperty[];
+            console.log(`${ tabs }\t ${ name }:`);
+            // log each object in array
+            arrayProperties.forEach(
+                ({ name, value }, index) => {
+                    console.log(`${ tabs }\t\t [${ index }]:`);
+                    if (Array.isArray((value))) {
+                        // console.log(JSON.stringify(value, null, 4));
+                        logEvent(value as EventProperty[], indent + 2)
+                    } else {
+                        // assuming not a singular event property, therefore must be a primitive
+                        console.log(`${ tabs }\t\t\t${ name }: ${ value }`);
+                    }
+                }
+            );
             continue;
         }
 

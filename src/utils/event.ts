@@ -5,6 +5,13 @@ import { EventProperty } from '../types/eventProperty';
 import { IdlNonPrimitiveType, IdlPrimitiveType } from './idl';
 import { anchorNonPrimitiveToEventProperty, anchorPrimitiveToEventProperty } from './anchor';
 
+/**
+ * parses an event to an EVEvent
+ * @param name of the event
+ * @param data to be parsed
+ * @param fields used for parsing the event
+ * @param idl helps with the parsing (inner types)
+ */
 export function parseEvent(name: string, data: EventData<IdlEventField, Record<string, never>>, fields: IdlEventField[], idl: Idl): VNEvent {
     const properties: EventProperty[] = [];
     // we ignore index as it is unused in our program
@@ -20,6 +27,7 @@ export function parseEvent(name: string, data: EventData<IdlEventField, Record<s
             const castedFieldType = fieldType as IdlNonPrimitiveType;
             const property = anchorNonPrimitiveToEventProperty(fieldName, castedFieldType, idl, value);
 
+            // handle the case when property is an array
             if (Array.isArray(property)) {
                 properties.push(...property);
             } else {

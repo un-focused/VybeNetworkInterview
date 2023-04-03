@@ -1,4 +1,3 @@
-// is it a type of IdlTypeDefined
 import {
     IdlEvent,
     IdlTypeArray,
@@ -10,20 +9,23 @@ import {
 import { BorshCoder, EventParser, Idl } from '@coral-xyz/anchor';
 import { EventProperty } from '../types/eventProperty';
 import { anchorNonPrimitiveToEventProperty, anchorPrimitiveToEventProperty } from './anchor';
-import { MANGO_V4_IDL, MANGO_V4_PUBLIC_KEY } from '../constants';
 import { PublicKey } from '@solana/web3.js';
 
-// u32, i8, & i16 are omitted as it is not in the events type
-// 'bool' | 'f32' | 'f64' | 'i128' | 'i64' | 'publicKey' | 'u128' | 'u16' | 'u64' | 'u8';
 export type IdlPrimitiveType = "bool" | "u8" | "i8" | "u16" | "i16" | "u32" | "i32" | "f32" | "u64" | "i64" | "f64" | "u128" | "i128" | "u256" | "i256" | "bytes" | "string" | "publicKey";
 export type IdlNonPrimitiveType = IdlTypeDefined | IdlTypeOption | IdlTypeCOption | IdlTypeVec | IdlTypeArray;
 
+/**
+ * setups up the tools for the IDL & program
+ * @param key of the program
+ * @param idl to parse the program
+ */
 export function setupIdlTools(key: PublicKey, idl: Idl) {
     // we know events must be defined (if not a crash makes sense as we do not want to continue)
     const events = idl.events!;
     const eventMap = new Map<string, IdlEvent>();
     const coder = new BorshCoder(idl);
     const parser = new EventParser(key, coder);
+    // construct event mapp
     for (const event of events) {
         eventMap.set(event.name, event);
     }
@@ -31,12 +33,23 @@ export function setupIdlTools(key: PublicKey, idl: Idl) {
     return { coder, parser, eventMap };
 }
 
+/**
+ * find type def in IDL
+ * @param idl to search in
+ * @param name to find
+ */
 export function findTypeDefInIDL(idl: Idl, name: string): IdlTypeDef | undefined {
     return idl.types?.find(
         (type) => type.name == name
     );
 }
 
+/**
+ * converts the IDLTypeDef to an EventProperty type
+ * @param idlTypeDefTy to be parse
+ * @param idl used to convert
+ * @param value of what we are trying to parse into an EventProperty
+ */
 export function idlTypeDefTyToEventProperty(idlTypeDefTy: IdlTypeDefTy, idl: Idl, value: unknown): EventProperty[] {
     // enum typedef
     /**
@@ -49,10 +62,15 @@ export function idlTypeDefTyToEventProperty(idlTypeDefTy: IdlTypeDefTy, idl: Idl
             [key: string]: {}
         };
 
+        // parse the enum
         const { variants } = idlTypeDefTy;
+        // go through each key
         for (const key of Object.keys(castedValue)) {
+            // iterate through each variant (enum value)
             for (const variant of variants) {
+                // if name matches
                 if (variant.name.toLowerCase() === key.toLowerCase()) {
+                    // push enum to array
                     properties.push(
                         {
                             name: key,
@@ -60,6 +78,7 @@ export function idlTypeDefTyToEventProperty(idlTypeDefTy: IdlTypeDefTy, idl: Idl
                             value: variant.name
                         }
                     );
+                    // only one variant can match one key
                     break;
                 }
             }
@@ -67,7 +86,7 @@ export function idlTypeDefTyToEventProperty(idlTypeDefTy: IdlTypeDefTy, idl: Idl
 
         return properties;
     }
-    // struct typedef
+    // struct typedef, if struct
     else if (idlTypeDefTy.kind === 'struct') {
         const castedValue = value as {
             [key: string]: unknown;
@@ -75,17 +94,19 @@ export function idlTypeDefTyToEventProperty(idlTypeDefTy: IdlTypeDefTy, idl: Idl
         const properties: EventProperty[] = [];
         const { fields } = idlTypeDefTy;
         for (const { name, type } of fields) {
+            // if string then primitive type
             if (typeof type === 'string') {
                 const p = anchorPrimitiveToEventProperty(name, type as IdlPrimitiveType, castedValue[name]);
                 properties.push(p);
                 continue;
             }
 
-            const p = anchorNonPrimitiveToEventProperty(name, type as IdlNonPrimitiveType, idl, castedValue[name]);
-            if ('length' in p) {
-                properties.push(...p);
+            const eventProperty = anchorNonPrimitiveToEventProperty(name, type as IdlNonPrimitiveType, idl, castedValue[name]);
+            // may return an array so take appropriate action to handle this case
+            if (Array.isArray(eventProperty)) {
+                properties.push(...eventProperty);
             } else {
-                properties.push(p);
+                properties.push(eventProperty);
             }
         }
 
