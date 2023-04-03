@@ -1,4 +1,5 @@
 import {
+    ConfirmedSignatureInfo,
     Connection, PublicKey, TransactionConfirmationStatus
 } from '@solana/web3.js';
 
@@ -55,9 +56,22 @@ async function runner(connection: Connection, publicKey: PublicKey, idl: Idl, co
     const vnTransactions: Transaction[] = [];
 
     // filter signatures as to not get the same data twice
-    const newSignatures = signatures.filter(
-        ({ signature }) => !signatureMap.get(signature)
-    );
+    // const newSignatures = signatures.filter(
+    //     ({ signature }) => !signatureMap.get(signature)
+    // );
+
+    const newSignatures: ConfirmedSignatureInfo[] = [
+        {
+            blockTime: new Date().getTime() / 1000,
+            confirmationStatus: 'finalized',
+            signature: '4WEPK9aRByW4NvDJDpL8Uk716URjdPgD2mT8oXDGswmnZkzPx1UU2McyVeJzdrq7ofR8Nth7rY7hzyTCrJiBiH73',
+            err: null,
+            memo: null,
+            slot: 1
+        }
+    ];
+
+    console.log(newSignatures);
 
     // nothing to query!!, early return
     if (newSignatures.length === 0) {
@@ -69,10 +83,12 @@ async function runner(connection: Connection, publicKey: PublicKey, idl: Idl, co
     // create the event parser for the logs
     const { parser: eventParser, eventMap } = setupIdlTools(publicKey, idl);
 
+    console.log(transactions.length, newSignatures.length, signatures.length);
+
     // iterate through each transaction
     for (let i = 0; i < transactions.length; ++i) {
         const transaction = transactions[i];
-        const { blockTime, signature, confirmationStatus } = signatures[i];
+        const { blockTime, signature, confirmationStatus } = newSignatures[i];
         // if there is no transaction, then there is nothing to do
         if (!transaction || !blockTime || !confirmationStatus) {
             console.warn('[INFO]', 'MISSING INFORMATION FOR SIGNATURE');
@@ -97,7 +113,6 @@ async function runner(connection: Connection, publicKey: PublicKey, idl: Idl, co
             const { name, data } = next;
             // get event from IDL
             const event = eventMap.get(name);
-            console.log(data);
             if (!event) {
                 console.warn('[INFO]', 'MISSING FOR NAME: ' + name);
                 continue;
