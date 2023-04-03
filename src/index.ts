@@ -36,6 +36,15 @@ interface Transaction {
  *  - https://www.quicknode.com/guides/solana-development/transactions/how-to-get-transaction-logs-on-solana/
  *  - https://app.mango.markets/stats
  */
+
+/**
+ * runs the program (gets transactions from the program & parses them)
+ * logs the transactions along the way with their events in a pretty format
+ * @param connection to the solana endpoint
+ * @param publicKey of the program
+ * @param idl to parse the data
+ * @param signatureMap to prevent duplicate calls
+ */
 async function runner(connection: Connection, publicKey: PublicKey, idl: Idl, signatureMap: Map<string, boolean>) {
     const signatures = await connection.getSignaturesForAddress(
         publicKey,
@@ -81,20 +90,27 @@ async function runner(connection: Connection, publicKey: PublicKey, idl: Idl, si
         // parse the logs (returns a generator that we can iterate through)
         const gen = eventParser.parseLogs(logs, false);
 
+        // used to create the transaction
         const vnEvents: VNEvent[] = [];
+        // iterate through each event
         for (const next of gen) {
+            // extract necessary properties
             const { name, data } = next;
+            // get event from IDL
             const event = eventMap.get(name);
             if (!event) {
                 console.warn('[INFO]', 'MISSING FOR NAME: ' + name);
                 continue;
             }
 
+            // parse the event using the IDL
             const vnEvent = parseEvent(name, data, event.fields, idl);
 
+            // push parsed event to array
             vnEvents.push(vnEvent);
         }
 
+        // add parsed transaction to array
         vnTransactions.push(
             {
                 events: vnEvents,
@@ -114,12 +130,19 @@ async function runner(connection: Connection, publicKey: PublicKey, idl: Idl, si
     // vnTransactions TODO: put into database
 }
 
+/**
+ * logs an event (pretty print)
+ * @param item to be logged
+ * @param indent for pretty print (tabs)
+ */
 function logEvent(item: VNEvent | EventProperty[], indent = 2) {
     const tabs = '\t'.repeat(indent);
     let properties: EventProperty[];
+    // if array then no need to adjust
     if (Array.isArray(item)) {
         properties = item;
     } else {
+        // log name if event
         const { name } = item;
         properties = item.properties;
         console.log(`${ tabs }name: ${ name }`);
@@ -159,8 +182,7 @@ function logTransaction(transaction: Transaction) {
  * @param connection to the solana endpoint
  * @param publicKey of the program
  * @param idl to parse the data
- * @param eventMap to
- * @param signatureMap
+ * @param signatureMap to prevent duplicate calls
  */
 async function loopRunner(connection: Connection, publicKey: PublicKey, idl: Idl, signatureMap: Map<string, boolean>) {
     await runner(connection, publicKey, idl, signatureMap);
@@ -171,6 +193,9 @@ async function loopRunner(connection: Connection, publicKey: PublicKey, idl: Idl
     );
 }
 
+/**
+ * entry point of the program
+ */
 async function main() {
     const signatureMap = new Map<string, boolean>();
 
@@ -180,8 +205,10 @@ async function main() {
     const connection = new Connection(MAIN_NET_SOLANA_RPC_ENDPOINT);
 
     console.log(`connected to ${ connection.rpcEndpoint }`);
+
     // start runner for the Mango Program
     await loopRunner(connection, MANGO_V4_PUBLIC_KEY, MANGO_V4_IDL, signatureMap);
 }
 
+// run main
 void main();
