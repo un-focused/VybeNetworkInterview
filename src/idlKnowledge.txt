@@ -1,0 +1,26 @@
+FlashLoanType
+    - Enum
+    - IdlTypeDefTyEnum
+FlashLoanTokenDetail
+    - Struct
+    - IdlTypeDefTyStruct
+    - Array of Prims
+I80F48
+    - Struct
+    - IdlTypeDefTyStruct
+    - Array of Prims
+LoanOriginationFeeInstruction
+    - Enum
+    - IdlTypeDefTyEnum
+
+HealthCache
+    - Struct
+    - IdlTypeDefTyStruct
+    - Mix (Vec -> Defined) [IdlTypeVec]
+        - tokenInfos: TokenInfo
+        - serum3Infos: Serum3Info
+        - perpInfos: PerpInfo
+Equity
+    - Struct
+    - IdlTypeDefTyStruct
+    - Mix (Vec -> Defined) [IdlTypeVec]

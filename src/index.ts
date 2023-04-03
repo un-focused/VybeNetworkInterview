@@ -10,8 +10,7 @@ import {
 import {
     BorshCoder,
     EventData,
-    EventParser,
-    Idl
+    EventParser
 } from '@coral-xyz/anchor';
 // import idlJSON from './idl.json';
 import { IdlEvent, IdlEventField, IdlType, IdlTypeDefined } from '@coral-xyz/anchor/dist/cjs/idl';
