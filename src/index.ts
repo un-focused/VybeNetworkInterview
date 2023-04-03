@@ -192,15 +192,6 @@ function convertIdlTypeDefTyToEventProperty(idlTypeDefTy: IdlTypeDefTy, idl: Idl
         }
 
         return properties;
-        // {
-        //     tokenIndex: 4,
-        //         changeAmount: <BN: 71590910b000000000000>,
-        //     loan: <BN: 0>,
-        //     loanOriginationFee: <BN: 0>,
-        //     depositIndex: <BN: f493e6541cb8f1f0b>,
-        //     borrowIndex: <BN: f5b978d4fcdfa8143>,
-        //     price: <BN: 53fd767b8f0>
-        // }
     }
 
     return [];
@@ -260,14 +251,32 @@ function convertAnchorNonPrimitiveToEventProperty(name: string, type: IdlNonPrim
             }
         }
 
-        for (const property of properties) {
-            console.log('STRUCT', property);
-        }
-        // console.log('vec', vec);
-        // console.log('value', value);
         return properties;
     } else if ('array' in type) {
+        const properties: EventProperty[] = [];
         const { array } = type;
+        // size is unused
+        const [innerType] = array;
+
+        const castedValue = value as [];
+        for (const val of castedValue) {
+            let property: EventProperty | EventProperty[];
+            if (typeof innerType === 'string') {
+                property = convertAnchorPrimitiveToEventProperty(name, innerType as IdlPrimitiveType, val);
+            } else {
+                property = convertAnchorNonPrimitiveToEventProperty(name, innerType as IdlNonPrimitiveType, idl, val);
+            }
+
+            console.log('name', name, 'property', property);
+
+            if ('length' in property) {
+                properties.push(...property);
+            } else {
+                properties.push(property);
+            }
+        }
+
+        return properties;
     }
 
     return {
