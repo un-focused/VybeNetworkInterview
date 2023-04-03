@@ -54,20 +54,9 @@ async function runner(connection: Connection, publicKey: PublicKey, idl: Idl, si
     const vnTransactions: Transaction[] = [];
 
     // filter signatures as to not get the same data twice
-    // const newSignatures = signatures.filter(
-    //     ({ signature }) => !signatureMap.get(signature)
-    // );
-
-    const newSignatures: ConfirmedSignatureInfo[] = [
-        {
-            confirmationStatus: 'finalized',
-            blockTime: new Date().getTime() / 1000,
-            slot: 1,
-            err: null,
-            memo: null,
-            signature: '4WEPK9aRByW4NvDJDpL8Uk716URjdPgD2mT8oXDGswmnZkzPx1UU2McyVeJzdrq7ofR8Nth7rY7hzyTCrJiBiH73'
-        }
-    ]
+    const newSignatures = signatures.filter(
+        ({ signature }) => !signatureMap.get(signature)
+    );
 
     // nothing to query!!, early return
     if (newSignatures.length === 0) {
