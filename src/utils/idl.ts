@@ -1,5 +1,6 @@
 // is it a type of IdlTypeDefined
 import {
+    IdlEvent,
     IdlTypeArray,
     IdlTypeCOption, IdlTypeDef,
     IdlTypeDefined, IdlTypeDefTy,
@@ -9,7 +10,7 @@ import {
 import { BorshCoder, EventParser, Idl } from '@coral-xyz/anchor';
 import { EventProperty } from '../types/eventProperty';
 import { anchorNonPrimitiveToEventProperty, anchorPrimitiveToEventProperty } from './anchor';
-import { MANGO_V4_PUBLIC_KEY } from '../constants';
+import { MANGO_V4_IDL, MANGO_V4_PUBLIC_KEY } from '../constants';
 import { PublicKey } from '@solana/web3.js';
 
 // u32, i8, & i16 are omitted as it is not in the events type
@@ -18,10 +19,16 @@ export type IdlPrimitiveType = "bool" | "u8" | "i8" | "u16" | "i16" | "u32" | "i
 export type IdlNonPrimitiveType = IdlTypeDefined | IdlTypeOption | IdlTypeCOption | IdlTypeVec | IdlTypeArray;
 
 export function setupIdlTools(key: PublicKey, idl: Idl) {
+    // we know events must be defined (if not a crash makes sense as we do not want to continue)
+    const events = idl.events!;
+    const eventMap = new Map<string, IdlEvent>();
     const coder = new BorshCoder(idl);
     const parser = new EventParser(key, coder);
+    for (const event of events) {
+        eventMap.set(event.name, event);
+    }
 
-    return { coder, parser };
+    return { coder, parser, eventMap };
 }
 
 export function findTypeDefInIDL(idl: Idl, name: string): IdlTypeDef | undefined {

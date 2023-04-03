@@ -36,8 +36,7 @@ interface Transaction {
  *  - https://www.quicknode.com/guides/solana-development/transactions/how-to-get-transaction-logs-on-solana/
  *  - https://app.mango.markets/stats
  */
-async function runner(connection: Connection, publicKey: PublicKey, idl: Idl, eventMap: Map<string, IdlEvent>,
-                      signatureMap: Map<string, boolean>) {
+async function runner(connection: Connection, publicKey: PublicKey, idl: Idl, signatureMap: Map<string, boolean>) {
     const signatures = await connection.getSignaturesForAddress(
         publicKey,
         {
@@ -60,7 +59,7 @@ async function runner(connection: Connection, publicKey: PublicKey, idl: Idl, ev
     // get associated transactions for signatures
     const transactions = await getTransactionsForSignatures(connection, newSignatures);
     // create the event parser for the logs
-    const { parser: eventParser } = setupIdlTools(publicKey, idl);
+    const { parser: eventParser, eventMap } = setupIdlTools(publicKey, idl);
 
     // iterate through each transaction
     for (let i = 0; i < transactions.length; ++i) {
@@ -139,6 +138,10 @@ function logEvent(item: VNEvent | EventProperty[], indent = 2) {
     }
 }
 
+/**
+ * logs the transaction to the console (pretty print)
+ * @param transaction
+ */
 function logTransaction(transaction: Transaction) {
     const { events, signature, blockTime, confirmationStatus } = transaction;
     console.log('Transaction:');
@@ -151,23 +154,26 @@ function logTransaction(transaction: Transaction) {
     events.forEach(event => logEvent(event));
 }
 
-async function loopRunner(connection: Connection, publicKey: PublicKey, idl: Idl, eventMap: Map<string, IdlEvent>, signatureMap: Map<string, boolean>) {
-    await runner(connection, publicKey, idl, eventMap, signatureMap);
+/**
+ * loops the runner for the program
+ * @param connection to the solana endpoint
+ * @param publicKey of the program
+ * @param idl to parse the data
+ * @param eventMap to
+ * @param signatureMap
+ */
+async function loopRunner(connection: Connection, publicKey: PublicKey, idl: Idl, signatureMap: Map<string, boolean>) {
+    await runner(connection, publicKey, idl, signatureMap);
 
     setTimeout(
-        () => loopRunner(connection, publicKey, idl, eventMap, signatureMap),
+        () => loopRunner(connection, publicKey, idl, signatureMap),
         MAIN_NET_SOLANA_RPC_POLL_MS
     );
 }
 
 async function main() {
-    // we know events must be defined
-    const events = MANGO_V4_IDL.events!;
-    const eventMap = new Map<string, IdlEvent>();
     const signatureMap = new Map<string, boolean>();
-    for (const event of events) {
-        eventMap.set(event.name, event);
-    }
+
     // https://solana-labs.github.io/solana-web3.js/classes/Connection.html#constructor
     // Write some code to establish a connection to Solana mainnet via an RPC endpoint, you can use this for
     // free: https://docs.solana.com/cluster/rpc-endpoints#mainnet-beta
@@ -175,7 +181,7 @@ async function main() {
 
     console.log(`connected to ${ connection.rpcEndpoint }`);
     // start runner for the Mango Program
-    await loopRunner(connection, MANGO_V4_PUBLIC_KEY, MANGO_V4_IDL, eventMap, signatureMap);
+    await loopRunner(connection, MANGO_V4_PUBLIC_KEY, MANGO_V4_IDL, signatureMap);
 }
 
 void main();
