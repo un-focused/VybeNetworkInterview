@@ -1,19 +1,15 @@
 import {
-    Connection,
-    GetVersionedTransactionConfig,
-    ConfirmedSignatureInfo
+    Connection, PublicKey, TransactionConfirmationStatus
 } from '@solana/web3.js';
 
 // VN Prefix is used to indicate VybeNetworks
 
 import {
     BorshCoder,
-    EventData,
     EventParser, Idl
 } from '@coral-xyz/anchor';
 import {
-    IdlEvent,
-    IdlEventField,
+    IdlEvent
 } from '@coral-xyz/anchor/dist/cjs/idl';
 import {
     MAIN_NET_SOLANA_RPC_ENDPOINT, MAIN_NET_SOLANA_RPC_POLL_MS,
@@ -22,6 +18,17 @@ import {
     MANGO_V4_PUBLIC_KEY
 } from './constants';
 import { parseEvent } from './utils/event';
+import { getTransactionsForSignatures } from './utils/web3';
+import { formatDate } from './utils/format';
+import { setupIdlTools } from './utils/idl';
+import { Event as VNEvent } from './types/event';
+
+interface Transaction {
+    confirmationStatus: TransactionConfirmationStatus;
+    blockTime: number;
+    signature: string;
+    events: VNEvent[];
+}
 
 /**
  * REFERENCES:
@@ -29,103 +36,89 @@ import { parseEvent } from './utils/event';
  *  - https://www.quicknode.com/guides/solana-development/transactions/how-to-get-transaction-logs-on-solana/
  *  - https://app.mango.markets/stats
  */
-
-// lamport
-// const LAMPORT_VAL = 0.000000001;
-
-// TODO (MAIN PROBLEMS):
-// TODO: marketIndex <-- what to do with this?
-// TODO: convert lamport to SOL
-
-
-function getTransactionsForSignatures(connection: Connection, signatures: ConfirmedSignatureInfo[]) {
-    // required as per documentation, the default config is deprecated
-    const config: GetVersionedTransactionConfig = {
-        maxSupportedTransactionVersion: 0
-    };
-
-    return connection.getTransactions(
-        signatures.map(
-            item => item.signature
-        ),
-        config
-    );
-}
-
-async function mainBody(connection: Connection, eventMap: Map<string, IdlEvent>, signatureMap: Map<string, boolean>, idl: Idl) {
-    const signatures = await connection.getSignaturesForAddress(MANGO_V4_PUBLIC_KEY,
+async function runner(connection: Connection, publicKey: PublicKey, idl: Idl, eventMap: Map<string, IdlEvent>,
+                      signatureMap: Map<string, boolean>) {
+    const signatures = await connection.getSignaturesForAddress(
+        publicKey,
         {
             limit: MAIN_NET_SOLANA_RPC_RATE_LIMIT
         }
     );
+
+    const vnTransactions: Transaction[] = [];
+
+    // filter signatures as to not get the same data twice
     const newSignatures = signatures.filter(
         ({ signature }) => !signatureMap.get(signature)
     );
 
-    // nothing to query!!
+    // nothing to query!!, early return
     if (newSignatures.length === 0) {
         return;
     }
 
+    // get associated transactions for signatures
     const transactions = await getTransactionsForSignatures(connection, newSignatures);
-    const coder = new BorshCoder(idl);
-    const parser = new EventParser(MANGO_V4_PUBLIC_KEY, coder);
+    // create the event parser for the logs
+    const { parser: eventParser } = setupIdlTools(publicKey, idl);
 
+    // iterate through each transaction
     for (let i = 0; i < transactions.length; ++i) {
         const transaction = transactions[i];
-        // TODO: convert to date time
         const { blockTime, signature, confirmationStatus } = signatures[i];
-        if (!transaction) {
+        // if there is no transaction, then there is nothing to do
+        if (!transaction || !blockTime || !confirmationStatus) {
+            console.warn('[INFO]', 'MISSING INFORMATION FOR SIGNATURE');
             continue;
         }
 
-        signatureMap.set(signature, true)
-
+        // extract the logs
         const logs = transaction.meta?.logMessages;
+        // if there are no logs, there is nothing to do
         if (!logs) {
             continue;
         }
 
-        const gen = parser.parseLogs(logs, false);
-        // Apr 2, 2023 at 08:56:26 UTC
-        // TODO: check status before using block time
-        const date = new Date(blockTime! * 1000);
-        const dateString = date.toLocaleString('en-US', {
-            month: 'short',
-            day: 'numeric',
-            year: 'numeric',
-            hour: 'numeric',
-            minute: 'numeric',
-            second: 'numeric',
-            timeZone: 'UTC',
-            timeZoneName: 'short'
-        });
-        // Apr 2, 2023 at 9:02:54 UTC
-        console.log(`BLOCK TIME: ${ dateString }`);
-        console.log(`SIGNATURE: ${ signature }`);
-        // console.log(`CONFIRMATION STATUS: ${ confirmationStatus }`);
+        // parse the logs (returns a generator that we can iterate through)
+        const gen = eventParser.parseLogs(logs, false);
+        // const date = new Date(blockTime! * 1000);
+        // const dateString = formatDate(date);
+
+        const vnEvents: VNEvent[] = [];
         for (const next of gen) {
             const { name, data } = next;
             const event = eventMap.get(name);
             if (!event) {
-                console.log('[INFO]', 'MISSING FOR NAME: ' + name);
+                console.warn('[INFO]', 'MISSING FOR NAME: ' + name);
                 continue;
             }
 
-            const pEvent = parseEvent(name, data, event.fields, idl);
+            const vnEvent = parseEvent(name, data, event.fields, idl);
+
+            vnEvents.push(vnEvent);
         }
+
+        vnTransactions.push(
+            {
+                events: vnEvents,
+                signature,
+                blockTime,
+                confirmationStatus
+            }
+        );
+
+        // add signature to map to prevent asking for same data twice
+        signatureMap.set(signature, true);
     }
+
+    // vnTransactions TODO: put into database
 }
 
-async function runner(connection: Connection, eventMap: Map<string, IdlEvent>, signatureMap: Map<string, boolean>, idl: Idl) {
-    console.log('EXECUTING RUNNER');
-    await mainBody(connection, eventMap, signatureMap, idl);
-    console.log('FINISHED RUNNER');
+async function loopRunner(connection: Connection, publicKey: PublicKey, idl: Idl, eventMap: Map<string, IdlEvent>, signatureMap: Map<string, boolean>) {
+    await runner(connection, publicKey, idl, eventMap, signatureMap);
 
-    // sleep for 1 second
-    // await sleep(1000);
     setTimeout(
-        () => runner(connection, eventMap, signatureMap, idl),
+        () => loopRunner(connection, publicKey, idl, eventMap, signatureMap),
         MAIN_NET_SOLANA_RPC_POLL_MS
     );
 }
@@ -143,9 +136,9 @@ async function main() {
     // free: https://docs.solana.com/cluster/rpc-endpoints#mainnet-beta
     const connection = new Connection(MAIN_NET_SOLANA_RPC_ENDPOINT);
 
-    console.log(`connecting to ${ connection.rpcEndpoint }`);
-    await runner(connection, eventMap, signatureMap, MANGO_V4_IDL);
-    // await mainBody(connection, eventMap, MANGO_V4_IDL);
+    console.log(`connected to ${ connection.rpcEndpoint }`);
+    // start runner for the Mango Program
+    await loopRunner(connection, MANGO_V4_PUBLIC_KEY, MANGO_V4_IDL, eventMap, signatureMap);
 }
 
 void main();

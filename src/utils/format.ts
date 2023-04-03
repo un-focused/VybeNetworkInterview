@@ -17,3 +17,19 @@ export function uppercaseWords(words: string[]) {
     // use the map method to uppercase the first letter of each word
     return words.map(word => word.charAt(0).toUpperCase() + word.slice(1));
 }
+
+export function formatDate(date: Date) {
+    return date.toLocaleString(
+        'en-US',
+        {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric',
+            hour: 'numeric',
+            minute: 'numeric',
+            second: 'numeric',
+            timeZone: 'UTC',
+            timeZoneName: 'short'
+        }
+    );
+}

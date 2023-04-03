@@ -4,7 +4,7 @@ import {
     PublicKey,
     VersionedTransactionResponse,
     LAMPORTS_PER_SOL, ConfirmedSignatureInfo
-} from '@solana/web3.js';
+} from '@solana/web3.ts';
 
 import { SolanaParser } from '@debridge-finance/solana-transaction-parser';
 
@@ -195,7 +195,7 @@ async function main() {
     for (const event of events) {
         eventMap.set(event.name, event);
     }
-    // https://solana-labs.github.io/solana-web3.js/classes/Connection.html#constructor
+    // https://solana-labs.github.io/solana-web3.ts/classes/Connection.html#constructor
     // Write some code to establish a connection to Solana mainnet via an RPC endpoint, you can use this for
     // free: https://docs.solana.com/cluster/rpc-endpoints#mainnet-beta
     const connection = new Connection(MAIN_NET_SOLANA_RPC_ENDPOINT);
