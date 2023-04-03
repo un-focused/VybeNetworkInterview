@@ -2,11 +2,10 @@ import {
     Connection, PublicKey, TransactionConfirmationStatus
 } from '@solana/web3.js';
 
-// VN Prefix is used to indicate VybeNetworks
+// NOTE: VN Prefix is used to indicate VybeNetworks
 
 import {
-    BorshCoder,
-    EventParser, Idl
+    Idl
 } from '@coral-xyz/anchor';
 import {
     IdlEvent
@@ -22,6 +21,7 @@ import { getTransactionsForSignatures } from './utils/web3';
 import { formatDate } from './utils/format';
 import { setupIdlTools } from './utils/idl';
 import { Event as VNEvent } from './types/event';
+import { EventProperty } from './types/eventProperty';
 
 interface Transaction {
     confirmationStatus: TransactionConfirmationStatus;
@@ -81,8 +81,6 @@ async function runner(connection: Connection, publicKey: PublicKey, idl: Idl, ev
 
         // parse the logs (returns a generator that we can iterate through)
         const gen = eventParser.parseLogs(logs, false);
-        // const date = new Date(blockTime! * 1000);
-        // const dateString = formatDate(date);
 
         const vnEvents: VNEvent[] = [];
         for (const next of gen) {
@@ -111,7 +109,46 @@ async function runner(connection: Connection, publicKey: PublicKey, idl: Idl, ev
         signatureMap.set(signature, true);
     }
 
+    // log each transaction
+    vnTransactions.forEach((tx) => logTransaction(tx));
+
     // vnTransactions TODO: put into database
+}
+
+function logEvent(item: VNEvent | EventProperty[], indent = 2) {
+    const tabs = '\t'.repeat(indent);
+    let properties: EventProperty[];
+    if (Array.isArray(item)) {
+        properties = item;
+    } else {
+        const { name } = item;
+        properties = item.properties;
+        console.log(`${ tabs }name: ${ name }`);
+    }
+    for (const { name, type, value } of properties) {
+        if (type === 'object') {
+            logEvent(value as EventProperty[], indent + 1);
+            continue;
+        } else if (type == 'enum') {
+            const enumProperties = value as EventProperty[];
+            console.log(`${ tabs }\t ${ name }: ${ enumProperties.map((p) => p.value).join(' ') } `);
+            continue;
+        }
+
+        console.log(`${ tabs }\t ${ name }: ${ value }`);
+    }
+}
+
+function logTransaction(transaction: Transaction) {
+    const { events, signature, blockTime, confirmationStatus } = transaction;
+    console.log('Transaction:');
+    console.log('\tsignature: ', signature);
+    // * 1000 as JS date requires milliseconds
+    console.log('\tblock datetime: ', formatDate(new Date(blockTime * 1000)));
+    console.log('\tstatus: ', confirmationStatus);
+    console.log('\tevents: ');
+
+    events.forEach(event => logEvent(event));
 }
 
 async function loopRunner(connection: Connection, publicKey: PublicKey, idl: Idl, eventMap: Map<string, IdlEvent>, signatureMap: Map<string, boolean>) {
