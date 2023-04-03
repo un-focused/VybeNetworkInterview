@@ -30,7 +30,7 @@ import {
     MANGO_V4_PUBLIC_KEY
 } from './constants';
 import {
-    IdlNonPrimitiveType, IdlPrimitiveType,
+    IdlNonPrimitiveType, IdlPrimitiveType
 } from './utils/idl';
 
 // import { bigInt } from '@solana/buffer-layout-utils';
@@ -78,8 +78,6 @@ type EventProperty = {
     type: 'string' | 'number' | 'bn' | 'boolean' | 'object' | 'array' | 'enum';
 }
 
-
-
 function getTransactionsForSignatures(connection: Connection, signatures: ConfirmedSignatureInfo[]) {
     // required as per documentation, the default config is deprecated
     const config: GetVersionedTransactionConfig = {
@@ -108,26 +106,26 @@ function convertAnchorPrimitiveToEventProperty(name: string, type: IdlPrimitiveT
             name,
             type: 'string',
             value: value as string
-        }
+        };
     } else if (type === 'publicKey') {
         return {
             name,
             type: 'string',
             value: (value as PublicKey).toBase58()
-        }
+        };
     } else if (bnArray.includes(type)) {
         return {
             name,
             type: 'bn',
             // value: value as BN
             value: (value as BN).toString(10)
-        }
+        };
     } else if (numberArray.includes((type))) {
         return {
             name,
             type: 'number',
             value: value as number
-        }
+        };
     }
 
     throw new Error('no known type: ' + type);
@@ -136,10 +134,10 @@ function convertAnchorPrimitiveToEventProperty(name: string, type: IdlPrimitiveT
 function findTypeDefInIDL(idl: Idl, name: string): IdlTypeDef | undefined {
     return idl.types?.find(
         (type) => type.name == name
-    )
+    );
 }
 
-function convertIdlTypeDefTyToEventProperty(idlTypeDefTy: IdlTypeDefTy, value: unknown): EventProperty[] {
+function convertIdlTypeDefTyToEventProperty(idlTypeDefTy: IdlTypeDefTy, idl: Idl, value: unknown): EventProperty[] {
     // enum typedef
     /**
      * FORMAT: { variantName: {} }
@@ -161,7 +159,7 @@ function convertIdlTypeDefTyToEventProperty(idlTypeDefTy: IdlTypeDefTy, value: u
                             type: 'string',
                             value: variant.name
                         }
-                    )
+                    );
                     break;
                 }
             }
@@ -170,13 +168,44 @@ function convertIdlTypeDefTyToEventProperty(idlTypeDefTy: IdlTypeDefTy, value: u
         return properties;
     }
     // struct typedef
-    else if (idlTypeDefTy.kind === 'struct') {}
+    else if (idlTypeDefTy.kind === 'struct') {
+        const castedValue = value as {
+            [key: string]: unknown;
+        };
+        const properties: EventProperty[] = [];
+        const { fields } = idlTypeDefTy;
+        for (const { name, type } of fields) {
+            if (typeof type === 'string') {
+                properties.push(convertAnchorPrimitiveToEventProperty(name, type as IdlPrimitiveType, castedValue));
+                continue;
+            }
+
+            const p = convertAnchorNonPrimitiveToEventProperty(name, type as IdlNonPrimitiveType, idl, castedValue);
+            if ('length' in p) {
+                properties.push(...p);
+            } else {
+                properties.push(p);
+            }
+        }
+
+        return properties;
+        // {
+        //     tokenIndex: 4,
+        //         changeAmount: <BN: 71590910b000000000000>,
+        //     loan: <BN: 0>,
+        //     loanOriginationFee: <BN: 0>,
+        //     depositIndex: <BN: f493e6541cb8f1f0b>,
+        //     borrowIndex: <BN: f5b978d4fcdfa8143>,
+        //     price: <BN: 53fd767b8f0>
+        // }
+    }
 
     return [];
 }
 
 // IdlTypeOption | IdlTypeCOption | IdlTypeVec | IdlTypeArray;
 function convertAnchorNonPrimitiveToEventProperty(name: string, type: IdlNonPrimitiveType, idl: Idl, value: unknown): EventProperty | EventProperty[] {
+    // assumption: defined type is never a primitive
     if ('defined' in type) {
         const { defined } = type;
         const idlTypeDef = findTypeDefInIDL(idl, defined);
@@ -188,18 +217,52 @@ function convertAnchorNonPrimitiveToEventProperty(name: string, type: IdlNonPrim
         // console.log('DEFINED', defined);
         // console.log('FOUND TYPE', JSON.stringify(idlTypeDefTy));
         console.log('FOUND VALUE', value);
+        const properties = convertIdlTypeDefTyToEventProperty(idlTypeDefTy, idl, value);
         // TODO: consider enum as array
-         return {
-             name,
-             type: 'enum',
-             value: convertIdlTypeDefTyToEventProperty(idlTypeDefTy, value)
-         }
-    } else if ('option' in type) {
+        if (idlTypeDefTy.kind == 'enum') {
+            return {
+                name,
+                type: 'enum',
+                value: properties
+            };
+        } else {
+            return {
+                name,
+                type: 'object',
+                value: properties
+            };
+        }
+    } else if ('option' in type) { // unused in program
         const { option } = type;
-    } else if ('coption' in type) {
+    } else if ('coption' in type) { // unused in program
         const { coption } = type;
     } else if ('vec' in type) {
+        const properties: EventProperty[] = [];
         const { vec } = type;
+        const castedValue = value as [];
+        for (const val of castedValue) {
+            let property: EventProperty | EventProperty[];
+            if (typeof vec === 'string') {
+                property = convertAnchorPrimitiveToEventProperty(name, vec as IdlPrimitiveType, val);
+            } else {
+                property = convertAnchorNonPrimitiveToEventProperty(name, vec as IdlNonPrimitiveType, idl, val);
+            }
+
+            console.log('name', name, 'property', property);
+
+            if ('length' in property) {
+                properties.push(...property);
+            } else {
+                properties.push(property);
+            }
+        }
+
+        for (const property of properties) {
+            console.log('STRUCT', property);
+        }
+        // console.log('vec', vec);
+        // console.log('value', value);
+        return properties;
     } else if ('array' in type) {
         const { array } = type;
     }
@@ -208,12 +271,12 @@ function convertAnchorNonPrimitiveToEventProperty(name: string, type: IdlNonPrim
         name: '',
         value: '',
         type: 'string'
-    }
+    };
     // throw new Error('no known type: ' + JSON.stringify(type));
 }
 
 function parseEvent(data: EventData<IdlEventField, Record<string, never>>, fields: IdlEventField[], idl: Idl): ParsedEvent {
-    const properties: EventProperty[] = []
+    const properties: EventProperty[] = [];
     // we ignore index as it is unused in our program
     for (const { name: fieldName, type: fieldType } of fields) {
         const value = data[fieldName];
@@ -223,7 +286,7 @@ function parseEvent(data: EventData<IdlEventField, Record<string, never>>, field
             const property = convertAnchorPrimitiveToEventProperty(fieldName, castedFieldType, value);
             console.log('PROPERTY: ', property);
 
-            properties.push(property)
+            properties.push(property);
         } else {
             const castedFieldType = fieldType as IdlNonPrimitiveType;
             const property = convertAnchorNonPrimitiveToEventProperty(fieldName, castedFieldType, idl, value);
