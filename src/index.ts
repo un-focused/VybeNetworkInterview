@@ -69,6 +69,7 @@ function uppercaseWords(words: string[]) {
 }
 
 type ParsedEvent = {
+    name: string;
     properties: EventProperty[];
 }
 
@@ -114,7 +115,6 @@ function convertAnchorPrimitiveToEventProperty(name: string, type: IdlPrimitiveT
             value: (value as PublicKey).toBase58()
         };
     } else if (bnArray.includes(type)) {
-        console.log('VALUE IS', value, 'TYPE IS', type);
         return {
             name,
             type: 'bn',
@@ -287,7 +287,7 @@ function convertAnchorNonPrimitiveToEventProperty(name: string, type: IdlNonPrim
     // throw new Error('no known type: ' + JSON.stringify(type));
 }
 
-function parseEvent(data: EventData<IdlEventField, Record<string, never>>, fields: IdlEventField[], idl: Idl): ParsedEvent {
+function parseEvent(name: string, data: EventData<IdlEventField, Record<string, never>>, fields: IdlEventField[], idl: Idl): ParsedEvent {
     const properties: EventProperty[] = [];
     // we ignore index as it is unused in our program
     for (const { name: fieldName, type: fieldType } of fields) {
@@ -296,40 +296,44 @@ function parseEvent(data: EventData<IdlEventField, Record<string, never>>, field
         if (typeof fieldType === 'string') {
             const castedFieldType = fieldType as IdlPrimitiveType;
             const property = convertAnchorPrimitiveToEventProperty(fieldName, castedFieldType, value);
-            console.log('PROPERTY: ', property);
 
             properties.push(property);
         } else {
             const castedFieldType = fieldType as IdlNonPrimitiveType;
             const property = convertAnchorNonPrimitiveToEventProperty(fieldName, castedFieldType, idl, value);
-            console.log('FIELD IS: ', fieldName, fieldType);
-            // console.log('NOT REAL PROPERTY: ', property);
+
+            if (Array.isArray(property)) {
+                properties.push(...property);
+            } else {
+                properties.push(property);
+            }
         }
     }
 
     return {
+        name,
         properties
     };
 }
 
-async function mainBody(connection: Connection, eventMap: Map<string, IdlEvent>, idl: Idl) {
-    // const signatures = await connection.getSignaturesForAddress(MANGO_V4_PUBLIC_KEY,
-    //     {
-    //         limit: MAIN_NET_SOLANA_RPC_RATE_LIMIT
-    //     }
-    // );
-    const signatures: ConfirmedSignatureInfo[] = [
+async function mainBody(connection: Connection, eventMap: Map<string, IdlEvent>, signatureMap: Map<string, boolean>, idl: Idl) {
+    const signatures = await connection.getSignaturesForAddress(MANGO_V4_PUBLIC_KEY,
         {
-            confirmationStatus: 'finalized',
-            blockTime: new Date().getTime() / 1000,
-            slot: 1,
-            err: null,
-            memo: null,
-            signature: '4WEPK9aRByW4NvDJDpL8Uk716URjdPgD2mT8oXDGswmnZkzPx1UU2McyVeJzdrq7ofR8Nth7rY7hzyTCrJiBiH73'
+            limit: MAIN_NET_SOLANA_RPC_RATE_LIMIT
         }
-    ];
+    );
+    const newSignatures = signatures.filter(
+        ({ signature }) => !signatureMap.get(signature)
+    );
 
-    const transactions = await getTransactionsForSignatures(connection, signatures);
+    console.log('SIG LENGTH', signatures.length, 'NEW SIG LENGTH', newSignatures.length);
+
+    // nothing to query!!
+    if (newSignatures.length === 0) {
+        return;
+    }
+
+    const transactions = await getTransactionsForSignatures(connection, newSignatures);
     const coder = new BorshCoder(idl);
     const parser = new EventParser(MANGO_V4_PUBLIC_KEY, coder);
 
@@ -341,6 +345,8 @@ async function mainBody(connection: Connection, eventMap: Map<string, IdlEvent>,
             console.log('[INFO], NULL');
             continue;
         }
+
+        signatureMap.set(signature, true)
 
         const logs = transaction.meta?.logMessages;
         if (!logs) {
@@ -363,8 +369,8 @@ async function mainBody(connection: Connection, eventMap: Map<string, IdlEvent>,
             timeZoneName: 'short'
         });
         // Apr 2, 2023 at 9:02:54 UTC
-        // console.log(`BLOCK TIME: ${ dateString }`);
-        // console.log(`SIGNATURE: ${ signature }`);
+        console.log(`BLOCK TIME: ${ dateString }`);
+        console.log(`SIGNATURE: ${ signature }`);
         // console.log(`CONFIRMATION STATUS: ${ confirmationStatus }`);
         for (const next of gen) {
             const { name, data } = next;
@@ -375,21 +381,23 @@ async function mainBody(connection: Connection, eventMap: Map<string, IdlEvent>,
             }
 
             // TODO: parse event found
-            console.log('event found', name);
-            const pEvent = parseEvent(data, event.fields, idl);
+            // console.log('event found', name);
+            const pEvent = parseEvent(name, data, event.fields, idl);
+
+            console.log(JSON.stringify(pEvent));
         }
     }
 }
 
-async function runner(connection: Connection, eventMap: Map<string, IdlEvent>, idl: Idl) {
+async function runner(connection: Connection, eventMap: Map<string, IdlEvent>, signatureMap: Map<string, boolean>, idl: Idl) {
     console.log('EXECUTING RUNNER');
-    await mainBody(connection, eventMap, idl);
+    await mainBody(connection, eventMap, signatureMap, idl);
     console.log('FINISHED RUNNER');
 
     // sleep for 1 second
     // await sleep(1000);
     setTimeout(
-        () => runner(connection, eventMap, idl),
+        () => runner(connection, eventMap, signatureMap, idl),
         MAIN_NET_SOLANA_RPC_POLL_MS
     );
 }
@@ -398,6 +406,7 @@ async function main() {
     // we know events must be defined
     const events = MANGO_V4_IDL.events!;
     const eventMap = new Map<string, IdlEvent>();
+    const signatureMap = new Map<string, boolean>();
     for (const event of events) {
         eventMap.set(event.name, event);
     }
@@ -407,8 +416,8 @@ async function main() {
     const connection = new Connection(MAIN_NET_SOLANA_RPC_ENDPOINT);
 
     console.log(`connecting to ${ connection.rpcEndpoint }`);
-    // await runner(connection, eventMap);
-    await mainBody(connection, eventMap, MANGO_V4_IDL);
+    await runner(connection, eventMap, signatureMap, MANGO_V4_IDL);
+    // await mainBody(connection, eventMap, MANGO_V4_IDL);
 }
 
 void main();
