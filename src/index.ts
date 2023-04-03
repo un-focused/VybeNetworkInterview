@@ -114,6 +114,7 @@ function convertAnchorPrimitiveToEventProperty(name: string, type: IdlPrimitiveT
             value: (value as PublicKey).toBase58()
         };
     } else if (bnArray.includes(type)) {
+        console.log('VALUE IS', value, 'TYPE IS', type);
         return {
             name,
             type: 'bn',
@@ -176,11 +177,13 @@ function convertIdlTypeDefTyToEventProperty(idlTypeDefTy: IdlTypeDefTy, idl: Idl
         const { fields } = idlTypeDefTy;
         for (const { name, type } of fields) {
             if (typeof type === 'string') {
-                properties.push(convertAnchorPrimitiveToEventProperty(name, type as IdlPrimitiveType, castedValue));
+                const p = convertAnchorPrimitiveToEventProperty(name, type as IdlPrimitiveType, castedValue[name]);
+                console.log('TYPE: ', type, 'P: ', p);
+                properties.push(p);
                 continue;
             }
 
-            const p = convertAnchorNonPrimitiveToEventProperty(name, type as IdlNonPrimitiveType, idl, castedValue);
+            const p = convertAnchorNonPrimitiveToEventProperty(name, type as IdlNonPrimitiveType, idl, castedValue[name]);
             if ('length' in p) {
                 properties.push(...p);
             } else {
@@ -216,7 +219,7 @@ function convertAnchorNonPrimitiveToEventProperty(name: string, type: IdlNonPrim
         const idlTypeDefTy = idlTypeDef.type;
         // console.log('DEFINED', defined);
         // console.log('FOUND TYPE', JSON.stringify(idlTypeDefTy));
-        console.log('FOUND VALUE', value);
+        // console.log('FOUND VALUE', value);
         const properties = convertIdlTypeDefTyToEventProperty(idlTypeDefTy, idl, value);
         // TODO: consider enum as array
         if (idlTypeDefTy.kind == 'enum') {
@@ -291,7 +294,7 @@ function parseEvent(data: EventData<IdlEventField, Record<string, never>>, field
             const castedFieldType = fieldType as IdlNonPrimitiveType;
             const property = convertAnchorNonPrimitiveToEventProperty(fieldName, castedFieldType, idl, value);
             console.log('FIELD IS: ', fieldName, fieldType);
-            console.log('NOT REAL PROPERTY: ', property);
+            // console.log('NOT REAL PROPERTY: ', property);
         }
     }
 
