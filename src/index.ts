@@ -10,15 +10,15 @@ import {
 import {
     BorshCoder,
     EventData,
-    EventParser
+    EventParser, Idl
 } from '@coral-xyz/anchor';
 // import idlJSON from './idl.json';
 import {
     IdlEvent,
     IdlEventField,
     IdlType, IdlTypeArray,
-    IdlTypeCOption,
-    IdlTypeDefined,
+    IdlTypeCOption, IdlTypeDef,
+    IdlTypeDefined, IdlTypeDefTy,
     IdlTypeOption, IdlTypeVec
 } from '@coral-xyz/anchor/dist/cjs/idl';
 import BN from 'bn.js';
@@ -31,11 +31,6 @@ import {
 } from './constants';
 import {
     IdlNonPrimitiveType, IdlPrimitiveType,
-    isIdlTypeArray,
-    isIdlTypeCOption,
-    isIdlTypeDefined,
-    isIdlTypeOption,
-    isIdlTypeVec
 } from './utils/idl';
 
 // import { bigInt } from '@solana/buffer-layout-utils';
@@ -80,7 +75,7 @@ type ParsedEvent = {
 type EventProperty = {
     name: string;
     value: string | number | boolean | BN | EventProperty[] | EventProperty;
-    type: 'string' | 'number' | 'bn' | 'boolean' | 'object' | 'array';
+    type: 'string' | 'number' | 'bn' | 'boolean' | 'object' | 'array' | 'enum';
 }
 
 
@@ -138,19 +133,82 @@ function convertAnchorPrimitiveToEventProperty(name: string, type: IdlPrimitiveT
     throw new Error('no known type: ' + type);
 }
 
-// IdlTypeOption | IdlTypeCOption | IdlTypeVec | IdlTypeArray;
-function convertAnchorNonPrimitiveToEventProperty(name: string, type: IdlNonPrimitiveType, value: unknown): EventProperty {
-    if ('defined' in type) {
-        const { } = type;
-    } else if ('option' in type) {}
-    else if ('coption' in type) {}
-    else if ('vec' in type) {}
-    else if ('array' in type) {}
-
-    throw new Error('no known type: ' + type);
+function findTypeDefInIDL(idl: Idl, name: string): IdlTypeDef | undefined {
+    return idl.types?.find(
+        (type) => type.name == name
+    )
 }
 
-function parseEvent(data: EventData<IdlEventField, Record<string, never>>, fields: IdlEventField[]): ParsedEvent {
+function convertIdlTypeDefTyToEventProperty(name: string, idlTypeDefTy: IdlTypeDefTy, value: unknown): EventProperty[] {
+    // enum typedef
+    /**
+     * FORMAT: { variantName: {} }
+     * SEE: https://www.anchor-lang.com/docs/javascript-anchor-types
+     */
+    if (idlTypeDefTy.kind === 'enum') {
+        const properties: EventProperty[] = [];
+        const castedValue = value as {
+            [key: string]: {}
+        };
+
+        const { variants } = idlTypeDefTy;
+        for (const key of Object.keys(castedValue)) {
+            for (const variant of variants) {
+                if (variant.name.toLowerCase() === key.toLowerCase()) {
+                    properties.push(
+                        {
+                            name,
+                            type: 'enum',
+                            value: variant.name
+                        }
+                    )
+                    break;
+                }
+            }
+        }
+
+        return properties;
+    }
+    // struct typedef
+    else if (idlTypeDefTy.kind === 'struct') {}
+
+    return [];
+}
+
+// IdlTypeOption | IdlTypeCOption | IdlTypeVec | IdlTypeArray;
+function convertAnchorNonPrimitiveToEventProperty(name: string, type: IdlNonPrimitiveType, idl: Idl, value: unknown): EventProperty | EventProperty[] {
+    if ('defined' in type) {
+        const { defined } = type;
+        const idlTypeDef = findTypeDefInIDL(idl, defined);
+        if (!idlTypeDef) {
+            throw 'COULD NOT FIND: ' + defined;
+        }
+
+        const idlTypeDefTy = idlTypeDef.type;
+        // console.log('DEFINED', defined);
+        // console.log('FOUND TYPE', JSON.stringify(idlTypeDefTy));
+        console.log('FOUND VALUE', value);
+        // TODO: consider enum as array
+        return convertIdlTypeDefTyToEventProperty(name, idlTypeDefTy, value)
+    } else if ('option' in type) {
+        const { option } = type;
+    } else if ('coption' in type) {
+        const { coption } = type;
+    } else if ('vec' in type) {
+        const { vec } = type;
+    } else if ('array' in type) {
+        const { array } = type;
+    }
+
+    return {
+        name: '',
+        value: '',
+        type: 'string'
+    }
+    // throw new Error('no known type: ' + JSON.stringify(type));
+}
+
+function parseEvent(data: EventData<IdlEventField, Record<string, never>>, fields: IdlEventField[], idl: Idl): ParsedEvent {
     const properties: EventProperty[] = []
     // we ignore index as it is unused in our program
     for (const { name: fieldName, type: fieldType } of fields) {
@@ -163,7 +221,10 @@ function parseEvent(data: EventData<IdlEventField, Record<string, never>>, field
 
             properties.push(property)
         } else {
+            const castedFieldType = fieldType as IdlNonPrimitiveType;
+            const property = convertAnchorNonPrimitiveToEventProperty(fieldName, castedFieldType, idl, value);
             console.log('FIELD IS: ', fieldName, fieldType);
+            console.log('NOT REAL PROPERTY: ', property);
         }
     }
 
@@ -172,7 +233,7 @@ function parseEvent(data: EventData<IdlEventField, Record<string, never>>, field
     };
 }
 
-async function mainBody(connection: Connection, eventMap: Map<string, IdlEvent>) {
+async function mainBody(connection: Connection, eventMap: Map<string, IdlEvent>, idl: Idl) {
     // const signatures = await connection.getSignaturesForAddress(MANGO_V4_PUBLIC_KEY,
     //     {
     //         limit: MAIN_NET_SOLANA_RPC_RATE_LIMIT
@@ -190,7 +251,7 @@ async function mainBody(connection: Connection, eventMap: Map<string, IdlEvent>)
     ];
 
     const transactions = await getTransactionsForSignatures(connection, signatures);
-    const coder = new BorshCoder(MANGO_V4_IDL);
+    const coder = new BorshCoder(idl);
     const parser = new EventParser(MANGO_V4_PUBLIC_KEY, coder);
 
     for (let i = 0; i < transactions.length; ++i) {
@@ -236,20 +297,20 @@ async function mainBody(connection: Connection, eventMap: Map<string, IdlEvent>)
 
             // TODO: parse event found
             console.log('event found', name);
-            const pEvent = parseEvent(data, event.fields);
+            const pEvent = parseEvent(data, event.fields, idl);
         }
     }
 }
 
-async function runner(connection: Connection, eventMap: Map<string, IdlEvent>) {
+async function runner(connection: Connection, eventMap: Map<string, IdlEvent>, idl: Idl) {
     console.log('EXECUTING RUNNER');
-    await mainBody(connection, eventMap);
+    await mainBody(connection, eventMap, idl);
     console.log('FINISHED RUNNER');
 
     // sleep for 1 second
     // await sleep(1000);
     setTimeout(
-        () => runner(connection, eventMap),
+        () => runner(connection, eventMap, idl),
         MAIN_NET_SOLANA_RPC_POLL_MS
     );
 }
@@ -268,7 +329,7 @@ async function main() {
 
     console.log(`connecting to ${ connection.rpcEndpoint }`);
     // await runner(connection, eventMap);
-    await mainBody(connection, eventMap);
+    await mainBody(connection, eventMap, MANGO_V4_IDL);
 }
 
 void main();
