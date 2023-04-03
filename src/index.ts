@@ -1,5 +1,4 @@
 import {
-    ConfirmedSignatureInfo,
     Connection, PublicKey, TransactionConfirmationStatus
 } from '@solana/web3.js';
 
@@ -43,9 +42,10 @@ interface Transaction {
  * @param connection to the solana endpoint
  * @param publicKey of the program
  * @param idl to parse the data
+ * @param collection that is used to save the transactions in the database
  * @param signatureMap to prevent duplicate calls
  */
-async function runner(connection: Connection, publicKey: PublicKey, idl: Idl, collection: Collection<Document>, signatureMap: Map<string, boolean>) {
+async function runner(connection: Connection, publicKey: PublicKey, idl: Idl, collection: Collection, signatureMap: Map<string, boolean>) {
     const signatures = await connection.getSignaturesForAddress(
         publicKey,
         {
@@ -56,22 +56,9 @@ async function runner(connection: Connection, publicKey: PublicKey, idl: Idl, co
     const vnTransactions: Transaction[] = [];
 
     // filter signatures as to not get the same data twice
-    // const newSignatures = signatures.filter(
-    //     ({ signature }) => !signatureMap.get(signature)
-    // );
-
-    const newSignatures: ConfirmedSignatureInfo[] = [
-        {
-            blockTime: new Date().getTime() / 1000,
-            confirmationStatus: 'finalized',
-            signature: '4WEPK9aRByW4NvDJDpL8Uk716URjdPgD2mT8oXDGswmnZkzPx1UU2McyVeJzdrq7ofR8Nth7rY7hzyTCrJiBiH73',
-            err: null,
-            memo: null,
-            slot: 1
-        }
-    ];
-
-    console.log(newSignatures);
+    const newSignatures = signatures.filter(
+        ({ signature }) => !signatureMap.get(signature)
+    );
 
     // nothing to query!!, early return
     if (newSignatures.length === 0) {
@@ -82,8 +69,6 @@ async function runner(connection: Connection, publicKey: PublicKey, idl: Idl, co
     const transactions = await getTransactionsForSignatures(connection, newSignatures);
     // create the event parser for the logs
     const { parser: eventParser, eventMap } = setupIdlTools(publicKey, idl);
-
-    console.log(transactions.length, newSignatures.length, signatures.length);
 
     // iterate through each transaction
     for (let i = 0; i < transactions.length; ++i) {
@@ -159,8 +144,6 @@ async function runner(connection: Connection, publicKey: PublicKey, idl: Idl, co
 
     // log each transaction
     vnTransactions.forEach((tx) => logTransaction(tx));
-
-    // vnTransactions TODO: put into database
 }
 
 /**
@@ -233,9 +216,10 @@ function logTransaction(transaction: Transaction) {
  * @param connection to the solana endpoint
  * @param publicKey of the program
  * @param idl to parse the data
+ * @param collection that is used to save the transactions in the database
  * @param signatureMap to prevent duplicate calls
  */
-async function loopRunner(connection: Connection, publicKey: PublicKey, idl: Idl, collection: Collection<Document>, signatureMap: Map<string, boolean>) {
+async function loopRunner(connection: Connection, publicKey: PublicKey, idl: Idl, collection: Collection, signatureMap: Map<string, boolean>) {
     await runner(connection, publicKey, idl, collection, signatureMap);
 
     setTimeout(
