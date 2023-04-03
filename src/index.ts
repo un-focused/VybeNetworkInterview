@@ -29,7 +29,14 @@ import {
     MANGO_V4_IDL,
     MANGO_V4_PUBLIC_KEY
 } from './constants';
-import { isIdlTypeArray, isIdlTypeCOption, isIdlTypeDefined, isIdlTypeOption, isIdlTypeVec } from './utils/idl';
+import {
+    IdlNonPrimitiveType, IdlPrimitiveType,
+    isIdlTypeArray,
+    isIdlTypeCOption,
+    isIdlTypeDefined,
+    isIdlTypeOption,
+    isIdlTypeVec
+} from './utils/idl';
 
 // import { bigInt } from '@solana/buffer-layout-utils';
 
@@ -76,10 +83,7 @@ type EventProperty = {
     type: 'string' | 'number' | 'bn' | 'boolean' | 'object' | 'array';
 }
 
-// u32, i8, & i16 are omitted as it is not in the events type
-// 'bool' | 'f32' | 'f64' | 'i128' | 'i64' | 'publicKey' | 'u128' | 'u16' | 'u64' | 'u8';
-type IdlPrimitiveType = "bool" | "u8" | "i8" | "u16" | "i16" | "u32" | "i32" | "f32" | "u64" | "i64" | "f64" | "u128" | "i128" | "u256" | "i256" | "bytes" | "string" | "publicKey";
-type IdlNonPrimitiveType = IdlTypeDefined | IdlTypeOption | IdlTypeCOption | IdlTypeVec | IdlTypeArray;
+
 
 function getTransactionsForSignatures(connection: Connection, signatures: ConfirmedSignatureInfo[]) {
     // required as per documentation, the default config is deprecated
@@ -136,12 +140,12 @@ function convertAnchorPrimitiveToEventProperty(name: string, type: IdlPrimitiveT
 
 // IdlTypeOption | IdlTypeCOption | IdlTypeVec | IdlTypeArray;
 function convertAnchorNonPrimitiveToEventProperty(name: string, type: IdlNonPrimitiveType, value: unknown): EventProperty {
-    if (isIdlTypeDefined(type)) {
+    if ('defined' in type) {
         const { } = type;
-    } else if (isIdlTypeOption(type)) {}
-    else if (isIdlTypeCOption(type)) {}
-    else if (isIdlTypeVec(type)) {}
-    else if (isIdlTypeArray(type)) {}
+    } else if ('option' in type) {}
+    else if ('coption' in type) {}
+    else if ('vec' in type) {}
+    else if ('array' in type) {}
 
     throw new Error('no known type: ' + type);
 }
