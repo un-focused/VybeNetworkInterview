@@ -1,5 +1,4 @@
 import {
-    ConfirmedSignatureInfo,
     Connection, PublicKey, TransactionConfirmationStatus
 } from '@solana/web3.js';
 
@@ -8,6 +7,7 @@ import {
 import {
     Idl
 } from '@coral-xyz/anchor';
+import { Collection, Document, MongoClient } from 'mongodb';
 import {
     MAIN_NET_SOLANA_RPC_ENDPOINT, MAIN_NET_SOLANA_RPC_POLL_MS,
     MAIN_NET_SOLANA_RPC_RATE_LIMIT,
@@ -20,6 +20,7 @@ import { formatDate } from './utils/format';
 import { setupIdlTools } from './utils/idl';
 import { Event as VNEvent } from './types/event';
 import { EventProperty } from './types/eventProperty';
+import { config } from 'dotenv';
 
 interface Transaction {
     confirmationStatus: TransactionConfirmationStatus;
@@ -43,7 +44,7 @@ interface Transaction {
  * @param idl to parse the data
  * @param signatureMap to prevent duplicate calls
  */
-async function runner(connection: Connection, publicKey: PublicKey, idl: Idl, signatureMap: Map<string, boolean>) {
+async function runner(connection: Connection, publicKey: PublicKey, idl: Idl, collection: Collection<Document>, signatureMap: Map<string, boolean>) {
     const signatures = await connection.getSignaturesForAddress(
         publicKey,
         {
@@ -119,6 +120,21 @@ async function runner(connection: Connection, publicKey: PublicKey, idl: Idl, si
             }
         );
 
+        try {
+            const result = await collection.insertMany(vnTransactions);
+
+            console.log('RESULT: ' + result);
+        } catch (error: any) {
+            // REFERENCE: https://stackoverflow.com/questions/30593882/how-to-catch-the-error-when-inserting-a-mongodb-document-which-violates-an-uniqu
+            if (error.name === 'MongoBulkWriteError' && error.code === 11000) {
+                // already exists in our system
+                signatureMap.set(signature, true)
+                continue;
+            }
+
+            console.log('ERROR: ' + error);
+        }
+
         // add signature to map to prevent asking for same data twice
         signatureMap.set(signature, true);
     }
@@ -164,7 +180,7 @@ function logEvent(item: VNEvent | EventProperty[], indent = 2) {
                     console.log(`${ tabs }\t\t [${ index }]:`);
                     if (Array.isArray((value))) {
                         // console.log(JSON.stringify(value, null, 4));
-                        logEvent(value as EventProperty[], indent + 2)
+                        logEvent(value as EventProperty[], indent + 2);
                     } else {
                         // assuming not a singular event property, therefore must be a primitive
                         console.log(`${ tabs }\t\t\t${ name }: ${ value }`);
@@ -201,11 +217,11 @@ function logTransaction(transaction: Transaction) {
  * @param idl to parse the data
  * @param signatureMap to prevent duplicate calls
  */
-async function loopRunner(connection: Connection, publicKey: PublicKey, idl: Idl, signatureMap: Map<string, boolean>) {
-    await runner(connection, publicKey, idl, signatureMap);
+async function loopRunner(connection: Connection, publicKey: PublicKey, idl: Idl, collection: Collection<Document>, signatureMap: Map<string, boolean>) {
+    await runner(connection, publicKey, idl, collection, signatureMap);
 
     setTimeout(
-        () => loopRunner(connection, publicKey, idl, signatureMap),
+        () => loopRunner(connection, publicKey, idl, collection, signatureMap),
         MAIN_NET_SOLANA_RPC_POLL_MS
     );
 }
@@ -214,7 +230,30 @@ async function loopRunner(connection: Connection, publicKey: PublicKey, idl: Idl
  * entry point of the program
  */
 async function main() {
+    if (process.env.NODE_ENV !== 'production') {
+        config();
+    }
+    const uri = process.env.MONGODB_URI;
+
+    if (!uri) {
+        throw new Error('No URI provided');
+    }
+
     const signatureMap = new Map<string, boolean>();
+    const mongoClient = new MongoClient(uri);
+
+    await mongoClient.connect();
+
+    const vybeDatabase = mongoClient.db('vybe');
+    const transactionsCollection = vybeDatabase.collection('transactions');
+    const result = await transactionsCollection.createIndex(
+        {
+            'signature': 1
+        },
+        {
+            unique: true
+        }
+    );
 
     // https://solana-labs.github.io/solana-web3.js/classes/Connection.html#constructor
     // Write some code to establish a connection to Solana mainnet via an RPC endpoint, you can use this for
@@ -224,7 +263,7 @@ async function main() {
     console.log(`connected to ${ connection.rpcEndpoint }`);
 
     // start runner for the Mango Program
-    await loopRunner(connection, MANGO_V4_PUBLIC_KEY, MANGO_V4_IDL, signatureMap);
+    await loopRunner(connection, MANGO_V4_PUBLIC_KEY, MANGO_V4_IDL, transactionsCollection, signatureMap);
 }
 
 // run main
