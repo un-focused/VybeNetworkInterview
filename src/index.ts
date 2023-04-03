@@ -13,7 +13,14 @@ import {
     EventParser
 } from '@coral-xyz/anchor';
 // import idlJSON from './idl.json';
-import { IdlEvent, IdlEventField, IdlType, IdlTypeDefined } from '@coral-xyz/anchor/dist/cjs/idl';
+import {
+    IdlEvent,
+    IdlEventField,
+    IdlType, IdlTypeArray,
+    IdlTypeCOption,
+    IdlTypeDefined,
+    IdlTypeOption, IdlTypeVec
+} from '@coral-xyz/anchor/dist/cjs/idl';
 import BN from 'bn.js';
 import {
     DEV_NET_SOLANA_RPC_ENDPOINT,
@@ -22,6 +29,7 @@ import {
     MANGO_V4_IDL,
     MANGO_V4_PUBLIC_KEY
 } from './constants';
+import { isIdlTypeArray, isIdlTypeCOption, isIdlTypeDefined, isIdlTypeOption, isIdlTypeVec } from './utils/idl';
 
 // import { bigInt } from '@solana/buffer-layout-utils';
 
@@ -70,7 +78,8 @@ type EventProperty = {
 
 // u32, i8, & i16 are omitted as it is not in the events type
 // 'bool' | 'f32' | 'f64' | 'i128' | 'i64' | 'publicKey' | 'u128' | 'u16' | 'u64' | 'u8';
-export type IdlPrimitiveType = "bool" | "u8" | "i8" | "u16" | "i16" | "u32" | "i32" | "f32" | "u64" | "i64" | "f64" | "u128" | "i128" | "u256" | "i256" | "bytes" | "string" | "publicKey";
+type IdlPrimitiveType = "bool" | "u8" | "i8" | "u16" | "i16" | "u32" | "i32" | "f32" | "u64" | "i64" | "f64" | "u128" | "i128" | "u256" | "i256" | "bytes" | "string" | "publicKey";
+type IdlNonPrimitiveType = IdlTypeDefined | IdlTypeOption | IdlTypeCOption | IdlTypeVec | IdlTypeArray;
 
 function getTransactionsForSignatures(connection: Connection, signatures: ConfirmedSignatureInfo[]) {
     // required as per documentation, the default config is deprecated
@@ -86,7 +95,7 @@ function getTransactionsForSignatures(connection: Connection, signatures: Confir
     );
 }
 
-function convertAnchorToEventProperty(name: string, type: IdlPrimitiveType, value: unknown): EventProperty {
+function convertAnchorPrimitiveToEventProperty(name: string, type: IdlPrimitiveType, value: unknown): EventProperty {
     const bnArray = ['u64', 'u128', 'i64', 'i128'];
     const numberArray = ['u8', 'u16', 'u32', 'i8', 'i16', 'i32', 'f32', 'f64'];
     if (type === 'bool') {
@@ -111,7 +120,8 @@ function convertAnchorToEventProperty(name: string, type: IdlPrimitiveType, valu
         return {
             name,
             type: 'bn',
-            value: value as BN
+            // value: value as BN
+            value: (value as BN).toString(10)
         }
     } else if (numberArray.includes((type))) {
         return {
@@ -121,26 +131,36 @@ function convertAnchorToEventProperty(name: string, type: IdlPrimitiveType, valu
         }
     }
 
-    throw new Error('no known type: ' + type)
+    throw new Error('no known type: ' + type);
 }
 
-//  | IdlTypeOption | IdlTypeCOption | IdlTypeVec | IdlTypeArray;
+// IdlTypeOption | IdlTypeCOption | IdlTypeVec | IdlTypeArray;
+function convertAnchorNonPrimitiveToEventProperty(name: string, type: IdlNonPrimitiveType, value: unknown): EventProperty {
+    if (isIdlTypeDefined(type)) {
+        const { } = type;
+    } else if (isIdlTypeOption(type)) {}
+    else if (isIdlTypeCOption(type)) {}
+    else if (isIdlTypeVec(type)) {}
+    else if (isIdlTypeArray(type)) {}
+
+    throw new Error('no known type: ' + type);
+}
+
 function parseEvent(data: EventData<IdlEventField, Record<string, never>>, fields: IdlEventField[]): ParsedEvent {
     const properties: EventProperty[] = []
     // we ignore index as it is unused in our program
-    for (const { name: fieldName, type: fieldType} of fields) {
+    for (const { name: fieldName, type: fieldType } of fields) {
         const value = data[fieldName];
         // check if it is a primitive value!
         if (typeof fieldType === 'string') {
             const castedFieldType = fieldType as IdlPrimitiveType;
-            const property = convertAnchorToEventProperty(fieldName, castedFieldType, value);
+            const property = convertAnchorPrimitiveToEventProperty(fieldName, castedFieldType, value);
             console.log('PROPERTY: ', property);
 
             properties.push(property)
         } else {
-            console.log('FIELD ID: ', fieldName, fieldType);
+            console.log('FIELD IS: ', fieldName, fieldType);
         }
-        // console.log('FIELD IS: ', fieldName, fieldType);
     }
 
     return {
