@@ -58,77 +58,19 @@ function uppercaseWords(words: string[]) {
     return words.map(word => word.charAt(0).toUpperCase() + word.slice(1));
 }
 
-// export interface IDLEvent {
-//     name: string;
-//     fields: Field[];
-// }
-//
-// export interface Field {
-//     name: string;
-//     type: TypeClass | TypePrimitive;
-//     index: boolean;
-// }
-//
-// export interface TypeClass {
-//     defined?: string;
-//     vec?: Vec;
-// }
-//
-// export interface Vec {
-//     defined: string;
-// }
+type ParsedEvent = {
+    properties: EventProperty[];
+}
+
+type EventProperty = {
+    name: string;
+    value: string | number | boolean | BN | EventProperty[] | EventProperty;
+    type: 'string' | 'number' | 'bn' | 'boolean' | 'object' | 'array';
+}
 
 // u32, i8, & i16 are omitted as it is not in the events type
 // 'bool' | 'f32' | 'f64' | 'i128' | 'i64' | 'publicKey' | 'u128' | 'u16' | 'u64' | 'u8';
-export type TypePrimitive = "bool" | "u8" | "i8" | "u16" | "i16" | "u32" | "i32" | "f32" | "u64" | "i64" | "f64" | "u128" | "i128" | "u256" | "i256" | "bytes" | "string" | "publicKey";
-
-// TODO: parse primitives
-function getFormattedField(type: TypePrimitive, data: EventData<IdlEventField, Record<string, never>>, name: string) {
-    const value = data[name];
-    switch (type) {
-        case 'publicKey':
-            return (value as PublicKey).toBase58();
-        // boolean
-        case 'bool':
-            return (value as boolean) ? 'true' : 'false';
-        // big number
-        case 'u64': {
-            // return I80F48.fromU64(value as BN).toString();
-            const newValue = value as BN;
-            const n = BigInt(newValue.toString(10));
-            const formatter = new Intl.NumberFormat('en-US');
-
-            return formatter.format(n);
-        }
-        case 'u128':
-        case 'i64': {
-            const newValue = value as BN;
-            const n = BigInt(newValue.toString(10));
-            // const str = I80F48.fromString(newValue.toString(10)).toString();
-            // assuming USD
-            const formatter = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
-
-            return formatter.format(n);
-        }
-        case 'i128': {
-            const newValue = value as BN;
-            const n = BigInt(newValue.toString(10));
-            const formatter = new Intl.NumberFormat('en-US');
-
-            return formatter.format(n);
-            // return I80F48.fromString(newValue.toString(10)).toString();
-        }
-        // number
-        case 'u8':
-        case 'u16':
-        case 'f32':
-        case 'f64':
-            return value as number;
-        default:
-            console.warn('UNKNOWN TYPE: ', data[type], type);
-            return value;
-    }
-}
+export type IdlPrimitiveType = "bool" | "u8" | "i8" | "u16" | "i16" | "u32" | "i32" | "f32" | "u64" | "i64" | "f64" | "u128" | "i128" | "u256" | "i256" | "bytes" | "string" | "publicKey";
 
 function getTransactionsForSignatures(connection: Connection, signatures: ConfirmedSignatureInfo[]) {
     // required as per documentation, the default config is deprecated
@@ -144,78 +86,66 @@ function getTransactionsForSignatures(connection: Connection, signatures: Confir
     );
 }
 
-function parseEvent(data: EventData<IdlEventField, Record<string, never>>, fields: IdlEventField[]) {
-    for (const { name, type } of fields) {
-        const parts = splitCamelCaseString(name);
-        const displayName = uppercaseWords(parts).join(' ');
-        // u64" | "i64" | "f64" | "u128" | "i128" | "u256" | "i256" | "bytes" | "string" | "publicKey" |
-        //  | IdlTypeOption | IdlTypeCOption | IdlTypeVec | IdlTypeArray;
-        if (typeof (type) === 'string') {
-            const primitiveType = type as TypePrimitive;
-            // must be a type enum
-            console.log(`[${ displayName }]`, getFormattedField(primitiveType, data, name));
-            // IdlTypeDefined
-        } else if ('defined' in type) {
-            console.log('[TYPE DEFINED]', type.defined);
-            const { defined } = type;
-            if (!MANGO_V4_IDL.types) {
-                continue;
-            }
-
-            const idlTypeDef = MANGO_V4_IDL.types.find(
-                (type) => type.name === defined
-            );
-
-            if (!idlTypeDef) {
-                console.log('WHAT IS NOT FOUND: ', defined, type);
-                continue;
-            }
-
-            console.log('name', name);
-            console.log('IDLTypeDef', idlTypeDef);
-            console.log('[DATA INSIDE]', data[name]);
-            const innerData = data[name] as EventData<IdlEventField, Record<string, never>>;
-            const { type: innerType } = idlTypeDef;
-            if (innerType.kind === 'enum') {
-                if (!innerType.variants) {
-                    throw 'enum must have variants';
-                }
-
-                for (const key of Object.keys(innerData as any)) {
-                    for (const variant of innerType.variants) {
-                        if (variant.name.toLowerCase() === key.toLowerCase()) {
-                            console.log('NAME: ' + key + ' FOUND');
-                            break;
-                        }
-                    }
-                }
-            } else if (innerType.kind === 'struct') {
-                const eventFields = innerType.fields.map(
-                    ({ type, name }): IdlEventField => {
-                        return {
-                            type,
-                            name,
-                            index: false
-                        }
-                    }
-                )
-                // IdlEventField
-                parseEvent(innerData, eventFields);
-            }
-        } else if ('option' in type) { // IdlTypeOption
-            // in our IDL, the only option is u32
-            const option = type.option;
-            if (typeof option !== 'string') {
-                throw 'IDL should not have options without strings: ' + type
-            }
-
-            // recursive
-            console.log(`[${ displayName }]`, getFormattedField(option as TypePrimitive, data, name));
-        } else if ('coption' in type) { // IdlTypeCOption
-        } else if ('vec' in type) { // IdlTypeVec
-        } else if ('array' in type) { // IdlTypeArray
+function convertAnchorToEventProperty(name: string, type: IdlPrimitiveType, value: unknown): EventProperty {
+    const bnArray = ['u64', 'u128', 'i64', 'i128'];
+    const numberArray = ['u8', 'u16', 'u32', 'i8', 'i16', 'i32', 'f32', 'f64'];
+    if (type === 'bool') {
+        return {
+            name,
+            type: 'boolean',
+            value: value as boolean
+        };
+    } else if (type === 'string') {
+        return {
+            name,
+            type: 'string',
+            value: value as string
+        }
+    } else if (type === 'publicKey') {
+        return {
+            name,
+            type: 'string',
+            value: (value as PublicKey).toBase58()
+        }
+    } else if (bnArray.includes(type)) {
+        return {
+            name,
+            type: 'bn',
+            value: value as BN
+        }
+    } else if (numberArray.includes((type))) {
+        return {
+            name,
+            type: 'number',
+            value: value as number
         }
     }
+
+    throw new Error('no known type: ' + type)
+}
+
+//  | IdlTypeOption | IdlTypeCOption | IdlTypeVec | IdlTypeArray;
+function parseEvent(data: EventData<IdlEventField, Record<string, never>>, fields: IdlEventField[]): ParsedEvent {
+    const properties: EventProperty[] = []
+    // we ignore index as it is unused in our program
+    for (const { name: fieldName, type: fieldType} of fields) {
+        const value = data[fieldName];
+        // check if it is a primitive value!
+        if (typeof fieldType === 'string') {
+            const castedFieldType = fieldType as IdlPrimitiveType;
+            const property = convertAnchorToEventProperty(fieldName, castedFieldType, value);
+            console.log('PROPERTY: ', property);
+
+            properties.push(property)
+        } else {
+            console.log('FIELD ID: ', fieldName, fieldType);
+        }
+        // console.log('FIELD IS: ', fieldName, fieldType);
+    }
+
+    return {
+        properties
+    };
 }
 
 async function mainBody(connection: Connection, eventMap: Map<string, IdlEvent>) {
@@ -255,7 +185,6 @@ async function mainBody(connection: Connection, eventMap: Map<string, IdlEvent>)
         }
 
         const gen = parser.parseLogs(logs, false);
-        // console.log(`TRANSACTION INFO:`);
         // Apr 2, 2023 at 08:56:26 UTC
         // TODO: check status before using block time
         const date = new Date(blockTime! * 1000);
@@ -270,10 +199,9 @@ async function mainBody(connection: Connection, eventMap: Map<string, IdlEvent>)
             timeZoneName: 'short'
         });
         // Apr 2, 2023 at 9:02:54 UTC
-        console.log(`BLOCK TIME: ${ dateString }`);
-        console.log(`SIGNATURE: ${ signature }`);
-        console.log(`CONFIRMATION STATUS: ${ confirmationStatus }`);
-        // console.log('LOADED: ', transaction.meta?.loadedAddresses);
+        // console.log(`BLOCK TIME: ${ dateString }`);
+        // console.log(`SIGNATURE: ${ signature }`);
+        // console.log(`CONFIRMATION STATUS: ${ confirmationStatus }`);
         for (const next of gen) {
             const { name, data } = next;
             const event = eventMap.get(name);
@@ -282,35 +210,9 @@ async function mainBody(connection: Connection, eventMap: Map<string, IdlEvent>)
                 continue;
             }
 
-            if (event.name === 'MangoAccountData' || event.name === 'FlashLoanLog' || event.name === 'WithdrawLoanOriginationFeeLog') {
-                console.log('SUPER BIG IMPORTANT LOG HERE!!!');
-                console.log(`BLOCK TIME: ${ dateString }`);
-                console.log(`SIGNATURE: ${ signature }`);
-                console.log(`CONFIRMATION STATUS: ${ confirmationStatus }`);
-                console.log('DATA', data);
-            }
-            // } else {
-            //     // console.log('DOES NOT MATTER FOR NOW: ', name);
-            //     continue;
-            // }
-
             // TODO: parse event found
             console.log('event found', name);
-            parseEvent(data, event.fields);
-            // console.log('TX SIGS', transaction.transaction.signatures);
-
-            // for (const field of event.fields) {
-            //     const { name } = field;
-            //     // console.log(`BEFORE CAST: ${ name }: `, data[name]);
-            //     if (typeof field.type !== 'string') {
-            //         console.log('[INFO]: MUST BE A CLASS TYPE');
-            //         continue;
-            //     }
-            //
-            //     const { type } = field;
-            //     const value = anchorToTypes(type, data, name);
-            //     console.log('[INFO] CASTED: ', field.name, value);
-            // }
+            const pEvent = parseEvent(data, event.fields);
         }
     }
 }
@@ -328,11 +230,6 @@ async function runner(connection: Connection, eventMap: Map<string, IdlEvent>) {
     );
 }
 
-// const signatures = [
-//     {
-//         signature: '4YvAKJ1tzsMTVKLqzLfqJSEZ8S5fC6nmRCE6532ZgSLiR7vgs27eN1v8zGTzedXHR2EtrUSvei4abRN5U3MxJSuZ'
-//     }
-// ];
 async function main() {
     // we know events must be defined
     const events = MANGO_V4_IDL.events!;
@@ -344,7 +241,6 @@ async function main() {
     // Write some code to establish a connection to Solana mainnet via an RPC endpoint, you can use this for
     // free: https://docs.solana.com/cluster/rpc-endpoints#mainnet-beta
     const connection = new Connection(MAIN_NET_SOLANA_RPC_ENDPOINT);
-    // const connection = new Connection(DEV_NET_SOLANA_RPC_ENDPOINT);
 
     console.log(`connecting to ${ connection.rpcEndpoint }`);
     // await runner(connection, eventMap);
